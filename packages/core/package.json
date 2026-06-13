@@ -1,13 +1,13 @@
 {
     "name": "@hitmux/hitmux-context-engine-core",
-    "version": "0.1.15",
+    "version": "0.1.16",
     "description": "Core indexing engine for Hitmux Context Engine",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "pnpm clean && tsc --build --force",
         "dev": "tsc --watch",
-        "clean": "rimraf dist",
+        "clean": "rimraf dist tsconfig.tsbuildinfo",
         "lint": "eslint src --ext .ts",
         "lint:fix": "eslint src --ext .ts --fix",
         "typecheck": "tsc --noEmit",

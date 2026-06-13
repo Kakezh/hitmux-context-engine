@@ -1,34 +1,32 @@
 # Quick Start
 
-This page shows MCP client setup. Put product options in `config.jsonc`; MCP client config only needs to start the server.
+This page shows MCP client setup. Put product options in `config.conf`; MCP client config only needs to start the server.
 
 ## Claude Code
 
-Create `~/.hitmux-context-engine/config.jsonc`:
+Create `~/.hitmux-context-engine/config.conf`:
 
-```jsonc
-{
-    "embeddingProvider": "OpenRouter",
-    "embeddingModel": "qwen/qwen3-embedding-4b",
-    "openrouterApiKey": "sk-or-your-openrouter-api-key",
-    "milvusAddress": "localhost:19530"
-}
+```conf
+embeddingProvider = OpenRouter
+embeddingModel = qwen/qwen3-embedding-4b
+openrouterApiKey = sk-or-your-openrouter-api-key
+milvusAddress = localhost:19530
 ```
 
 Add the server:
 
 ```bash
-claude mcp add hitmux-context-engine -- npx @hitmux/hitmux-context-engine-mcp@latest
+claude mcp add hitmux-context-engine -- npx @hitmux/hce@latest
 ```
 
-Database note: Use Local Milvus with `"milvusAddress": "localhost:19530"`. For self-hosted remote Milvus, replace it with the reachable host and port, and add `"milvusToken"` only if authentication is required. For Zilliz Cloud, use the cloud public endpoint and add `"milvusToken"` with your Personal Key. Other database backends are not selectable from `config.jsonc`.
+Database note: Use Local Milvus with `milvusAddress = localhost:19530`. For self-hosted remote Milvus, replace it with the reachable host and port, and add `milvusToken` only if authentication is required. For Zilliz Cloud, use the cloud public endpoint and add `milvusToken` with your Personal Key. Other database backends are not selectable from `config.conf`.
 
 ## OpenAI Codex CLI
 
 Add the server:
 
 ```bash
-codex mcp add hitmux-context-engine -- npx @hitmux/hitmux-context-engine-mcp@latest
+codex mcp add hitmux-context-engine -- npx @hitmux/hce@latest
 ```
 
 Or add this to `~/.codex/config.toml`:
@@ -36,11 +34,13 @@ Or add this to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.hitmux-context-engine]
 command = "npx"
-args = ["@hitmux/hitmux-context-engine-mcp@latest"]
+args = ["@hitmux/hce@latest"]
 startup_timeout_ms = 20000
 ```
 
-Use the database settings in `~/.hitmux-context-engine/config.jsonc`.
+Use the database settings in `~/.hitmux-context-engine/config.conf`.
+
+`@hitmux/hce`, `@hitmux/hitmux-context-engine`, and `@hitmux/hitmux-context-engine-mcp` start the same MCP server.
 
 ## Local Source Install
 
@@ -76,7 +76,7 @@ For clients that use an `mcpServers` JSON object:
   "mcpServers": {
     "hitmux-context-engine": {
       "command": "npx",
-      "args": ["@hitmux/hitmux-context-engine-mcp@latest"]
+      "args": ["@hitmux/hce@latest"]
     }
   }
 }
@@ -89,13 +89,13 @@ Use `npx.cmd` on Windows clients that cannot resolve the npm shim:
   "mcpServers": {
     "hitmux-context-engine": {
       "command": "npx.cmd",
-      "args": ["-y", "@hitmux/hitmux-context-engine-mcp@latest"]
+      "args": ["-y", "@hitmux/hce@latest"]
     }
   }
 }
 ```
 
-Use the database settings in `~/.hitmux-context-engine/config.jsonc`.
+Use the database settings in `~/.hitmux-context-engine/config.conf`.
 
 This shape applies to Gemini CLI, Qwen Code, Cursor, Claude Desktop, Windsurf, VS Code MCP extensions, Cline, Roo Code, and similar MCP-compatible clients.
 
@@ -105,9 +105,11 @@ Any stdio MCP client can start the server with:
 
 ```bash
 npx @hitmux/hitmux-context-engine-mcp@latest
+npx @hitmux/hce@latest
+npx @hitmux/hitmux-context-engine@latest
 ```
 
-Use the database settings in `~/.hitmux-context-engine/config.jsonc`.
+Use the database settings in `~/.hitmux-context-engine/config.conf`.
 
 ## Use In A Repository
 
@@ -119,4 +121,4 @@ Check the indexing status
 Find functions that handle user authentication
 ```
 
-If you change `config.jsonc`, reconnect the MCP server before testing again.
+If you change `config.conf`, reconnect the MCP server before testing again.

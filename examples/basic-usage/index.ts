@@ -98,17 +98,17 @@ async function main() {
         // Provide detailed error diagnostics
         if (error instanceof Error) {
             if (error.message.includes('API key')) {
-                console.log('\n💡 Please set openrouterApiKey in ~/.hitmux-context-engine/config.jsonc');
+                console.log('\n💡 Please set openrouterApiKey in ~/.hitmux-context-engine/config.conf');
             } else if (error.message.includes('Milvus') || error.message.includes('connect')) {
                 console.log('\n💡 Please make sure Milvus service is running');
                 console.log('   - Default address: localhost:19530');
-                console.log('   - Can be modified via milvusAddress in ~/.hitmux-context-engine/config.jsonc');
+                console.log('   - Can be modified via milvusAddress in ~/.hitmux-context-engine/config.conf');
                 console.log('   - For RESTful API: set milvusUseRestful=true');
                 console.log('   - For gRPC (default): set milvusUseRestful=false or leave unset');
                 console.log('   - Start Milvus: docker run -p 19530:19530 milvusdb/milvus:latest');
             }
 
-            console.log('\n💡 Config file: ~/.hitmux-context-engine/config.jsonc');
+            console.log('\n💡 Config file: ~/.hitmux-context-engine/config.conf');
             console.log('   - openrouterApiKey: Your OpenRouter API key (required by default)');
             console.log('   - openaiApiKey: OpenAI-compatible API key fallback (optional)');
             console.log('   - openaiBaseUrl: Custom OpenAI-compatible API endpoint (default: https://openrouter.ai/api/v1)');

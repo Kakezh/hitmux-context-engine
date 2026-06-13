@@ -13,29 +13,29 @@ Create the runtime config:
 
 ```bash
 mkdir -p ~/.hitmux-context-engine
-cat > ~/.hitmux-context-engine/config.jsonc << 'EOF'
-{
-    "embeddingProvider": "OpenRouter",
-    "embeddingModel": "qwen/qwen3-embedding-4b",
-    "openrouterApiKey": "sk-or-your-openrouter-api-key",
-    "milvusAddress": "localhost:19530"
-}
+cat > ~/.hitmux-context-engine/config.conf << 'EOF'
+embeddingProvider = OpenRouter
+embeddingModel = qwen/qwen3-embedding-4b
+openrouterApiKey = sk-or-your-openrouter-api-key
+milvusAddress = localhost:19530
 EOF
 ```
 
 Add the MCP server to Claude Code:
 
 ```bash
-claude mcp add hitmux-context-engine -- npx @hitmux/hitmux-context-engine-mcp@latest
+claude mcp add hitmux-context-engine -- npx @hitmux/hce@latest
 ```
 
 Or add it to OpenAI Codex CLI:
 
 ```bash
-codex mcp add hitmux-context-engine -- npx @hitmux/hitmux-context-engine-mcp@latest
+codex mcp add hitmux-context-engine -- npx @hitmux/hce@latest
 ```
 
-Database note: Use Local Milvus with `"milvusAddress": "localhost:19530"`. For self-hosted remote Milvus, replace it with the reachable host and port, and add `"milvusToken"` only if authentication is required. For Zilliz Cloud, use the cloud public endpoint and add `"milvusToken"` with your Personal Key. Other database backends are not selectable from `config.jsonc`.
+The full package alias `@hitmux/hitmux-context-engine` and the original MCP package `@hitmux/hitmux-context-engine-mcp` start the same server.
+
+Database note: Use Local Milvus with `milvusAddress = localhost:19530`. For self-hosted remote Milvus, replace it with the reachable host and port, and add `milvusToken` only if authentication is required. For Zilliz Cloud, use the cloud public endpoint and add `milvusToken` with your Personal Key. Other database backends are not selectable from `config.conf`.
 
 Then open your MCP client in a repository and ask:
 
@@ -51,10 +51,10 @@ For a local source checkout, run `./scripts/install-local-global.sh` to build th
 
 ## Configuration
 
-Hitmux Context Engine reads product configuration from JSONC files:
+Hitmux Context Engine reads product configuration from conf files:
 
-1. `~/.hitmux-context-engine/config.jsonc`
-2. `./.hitmux-context-engine/config.jsonc`
+1. `~/.hitmux-context-engine/config.conf`
+2. `./.hitmux-context-engine/config.conf`
 3. built-in defaults
 
 Project config overrides global config for fields that are present. Environment variables and `~/.hitmux-context-engine/.env` are not used for MCP product options.
@@ -64,6 +64,7 @@ See [docs/configuration.md](docs/configuration.md) for provider, Milvus/Zilliz, 
 ## Packages
 
 - `@hitmux/hitmux-context-engine-mcp`: MCP stdio server for Claude Code and other MCP clients.
+- `@hitmux/hce` and `@hitmux/hitmux-context-engine`: npm package aliases for the MCP server.
 - `@hitmux/hitmux-context-engine-core`: TypeScript indexing, splitting, embedding, synchronization, and vector database package.
 
 See [docs/package-reference.md](docs/package-reference.md) for tools, package usage, and core API examples.
@@ -107,7 +108,7 @@ Before opening a PR, describe the changed package, behavior, validation commands
 ## Documentation
 
 - [docs/quick-start.md](docs/quick-start.md): MCP client setup.
-- [docs/configuration.md](docs/configuration.md): canonical JSONC configuration reference.
+- [docs/configuration.md](docs/configuration.md): canonical conf configuration reference.
 - [docs/troubleshooting.md](docs/troubleshooting.md): common setup and runtime problems.
 - [docs/package-reference.md](docs/package-reference.md): MCP tools and core package usage.
 

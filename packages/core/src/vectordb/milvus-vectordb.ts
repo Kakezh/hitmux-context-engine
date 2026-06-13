@@ -1104,7 +1104,7 @@ export class MilvusVectorDatabase implements VectorDatabase {
             if (/deadline_exceeded|deadline exceeded|timeout/i.test(errorMessage)) {
                 console.warn(
                     `[MilvusDB] checkCollectionLimit timed out after ${timeoutMs}ms; proceeding without limit pre-check. ` +
-                    'Set milvusCollectionLimitCheckTimeoutMs in ~/.hitmux-context-engine/config.jsonc to increase timeout.'
+                    'Set milvusCollectionLimitCheckTimeoutMs in ~/.hitmux-context-engine/config.conf to increase timeout.'
                 );
                 return true;
             }

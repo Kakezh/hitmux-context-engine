@@ -58,11 +58,11 @@ export class ConfigManager {
     }
 
     getGlobalConfigFilePath(): string {
-        return path.join(os.homedir(), '.hitmux-context-engine', 'config.jsonc');
+        return path.join(os.homedir(), '.hitmux-context-engine', 'config.conf');
     }
 
     getProjectConfigFilePath(projectRoot: string = process.cwd()): string {
-        return path.join(projectRoot, '.hitmux-context-engine', 'config.jsonc');
+        return path.join(projectRoot, '.hitmux-context-engine', 'config.conf');
     }
 
     getAll(): HitmuxConfig {
@@ -90,11 +90,11 @@ export class ConfigManager {
                 return null;
             }
 
-            const parsed = JSON.parse(stripJsonComments(content));
+            const parsed = parseConfConfig(content);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
                 return {
                     path: configPath,
-                    message: 'expected a JSON object'
+                    message: 'expected conf key-value fields'
                 };
             }
 
@@ -118,9 +118,9 @@ export class ConfigManager {
                 return {};
             }
 
-            const parsed = JSON.parse(stripJsonComments(content));
+            const parsed = parseConfConfig(content);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                console.warn(`[ConfigManager] Ignoring ${configPath}: expected a JSON object.`);
+                console.warn(`[ConfigManager] Ignoring ${configPath}: expected conf key-value fields.`);
                 return {};
             }
 
@@ -202,42 +202,59 @@ export class ConfigManager {
 
         const config = this.getAll();
         config[key] = value;
-        fs.writeFileSync(configPath, `${JSON.stringify(config, null, 4)}\n`, 'utf-8');
+        fs.writeFileSync(configPath, formatConfConfig(config), 'utf-8');
     }
 }
 
 export const configManager = new ConfigManager();
 
-function stripJsonComments(input: string): string {
+const ARRAY_CONFIG_KEYS = new Set<HitmuxConfigKey>([
+    'customExtensions',
+    'customIgnorePatterns'
+]);
+
+function parseConfConfig(input: string): HitmuxConfig {
+    const config: Record<string, unknown> = {};
+    const lines = input.split(/\r?\n/);
+
+    for (const [index, rawLine] of lines.entries()) {
+        const line = stripConfComment(rawLine).trim();
+        if (!line) {
+            continue;
+        }
+
+        const separatorIndex = line.indexOf('=');
+        if (separatorIndex < 1) {
+            throw new Error(`Invalid config line ${index + 1}: expected "field = value"`);
+        }
+
+        const key = line.slice(0, separatorIndex).trim() as HitmuxConfigKey;
+        const rawValue = line.slice(separatorIndex + 1).trim();
+        if (!/^[A-Za-z][A-Za-z0-9]*$/.test(key)) {
+            throw new Error(`Invalid config line ${index + 1}: invalid field name "${key}"`);
+        }
+
+        if (ARRAY_CONFIG_KEYS.has(key)) {
+            const values = parseConfArrayValue(rawValue);
+            const previous = config[key];
+            config[key] = Array.isArray(previous) ? [...previous, ...values] : values;
+            continue;
+        }
+
+        config[key] = parseConfScalarValue(rawValue);
+    }
+
+    return config as HitmuxConfig;
+}
+
+function stripConfComment(input: string): string {
     let output = '';
     let inString = false;
-    let inLineComment = false;
-    let inBlockComment = false;
+    let quote: '"' | "'" | null = null;
     let escaped = false;
 
     for (let i = 0; i < input.length; i++) {
         const current = input[i];
-        const next = input[i + 1];
-
-        if (inLineComment) {
-            if (current === '\n' || current === '\r') {
-                inLineComment = false;
-                output += current;
-            }
-            continue;
-        }
-
-        if (inBlockComment) {
-            if (current === '*' && next === '/') {
-                inBlockComment = false;
-                i++;
-                continue;
-            }
-            if (current === '\n' || current === '\r') {
-                output += current;
-            }
-            continue;
-        }
 
         if (inString) {
             output += current;
@@ -245,32 +262,107 @@ function stripJsonComments(input: string): string {
                 escaped = false;
             } else if (current === '\\') {
                 escaped = true;
-            } else if (current === '"') {
+            } else if (current === quote) {
                 inString = false;
+                quote = null;
             }
             continue;
         }
 
-        if (current === '"') {
+        if (current === '"' || current === "'") {
             inString = true;
+            quote = current;
             output += current;
             continue;
         }
 
-        if (current === '/' && next === '/') {
-            inLineComment = true;
-            i++;
-            continue;
-        }
-
-        if (current === '/' && next === '*') {
-            inBlockComment = true;
-            i++;
-            continue;
+        if (current === '#') {
+            break;
         }
 
         output += current;
     }
 
     return output;
+}
+
+function parseConfArrayValue(rawValue: string): string[] {
+    const value = unquoteConfValue(rawValue).trim();
+    if (!value) {
+        return [];
+    }
+
+    return value
+        .split(/\s+/)
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+}
+
+function parseConfScalarValue(rawValue: string): string | number | boolean | undefined {
+    const value = unquoteConfValue(rawValue).trim();
+    if (!value) {
+        return undefined;
+    }
+
+    const lowerValue = value.toLowerCase();
+    if (lowerValue === 'true') {
+        return true;
+    }
+    if (lowerValue === 'false') {
+        return false;
+    }
+
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue) && value === String(numberValue)) {
+        return numberValue;
+    }
+
+    return value;
+}
+
+function unquoteConfValue(rawValue: string): string {
+    if (rawValue.length < 2) {
+        return rawValue;
+    }
+
+    const quote = rawValue[0];
+    if ((quote !== '"' && quote !== "'") || rawValue[rawValue.length - 1] !== quote) {
+        return rawValue;
+    }
+
+    return rawValue
+        .slice(1, -1)
+        .replace(/\\(["'\\#])/g, '$1');
+}
+
+function formatConfConfig(config: HitmuxConfig): string {
+    const lines: string[] = [];
+    for (const [key, value] of Object.entries(config)) {
+        if (value === undefined || value === null) {
+            continue;
+        }
+
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                lines.push(`${key} = ${formatConfValue(item)}`);
+            }
+            continue;
+        }
+
+        lines.push(`${key} = ${formatConfValue(value)}`);
+    }
+
+    return `${lines.join('\n')}\n`;
+}
+
+function formatConfValue(value: string | number | boolean): string {
+    if (typeof value !== 'string') {
+        return String(value);
+    }
+
+    if (!value || /(^\s|\s$|#)/.test(value)) {
+        return `"${value.replace(/(["\\#])/g, '\\$1')}"`;
+    }
+
+    return value;
 }

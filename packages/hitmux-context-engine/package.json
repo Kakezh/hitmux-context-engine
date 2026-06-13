@@ -1,0 +1,28 @@
+{
+    "name": "@hitmux/hitmux-context-engine",
+    "version": "0.1.16",
+    "description": "Package alias for the Hitmux Context Engine MCP server",
+    "type": "module",
+    "bin": {
+        "hitmux-context-engine": "bin/hitmux-context-engine.js"
+    },
+    "scripts": {
+        "build": "node --check bin/hitmux-context-engine.js",
+        "prepublishOnly": "pnpm build"
+    },
+    "dependencies": {
+        "@hitmux/hitmux-context-engine-mcp": "workspace:*"
+    },
+    "files": [
+        "bin"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/hitmux/hitmux-context-engine.git",
+        "directory": "packages/hitmux-context-engine"
+    },
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    }
+}

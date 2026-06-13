@@ -275,7 +275,10 @@ export function showHelpMessage(): void {
     console.log(`
 Hitmux Context Engine MCP Server
 
-Usage: npx @hitmux/hitmux-context-engine-mcp@latest [options]
+Usage:
+  npx @hitmux/hce@latest [options]
+  npx @hitmux/hitmux-context-engine@latest [options]
+  npx @hitmux/hitmux-context-engine-mcp@latest [options]
 
 Options:
   --help, -h                          Show this help message
@@ -283,8 +286,8 @@ Options:
 Configuration:
   Runtime configuration is read from both files, with project config overriding
   global config for matching fields:
-    ~/.hitmux-context-engine/config.jsonc
-    ./.hitmux-context-engine/config.jsonc
+    ~/.hitmux-context-engine/config.conf
+    ./.hitmux-context-engine/config.conf
 
   Environment variables and ~/.hitmux-context-engine/.env are not used for
   Hitmux Context Engine options.
@@ -293,7 +296,7 @@ Safety override environment variable:
   HITMUX_CONTEXT_ENGINE_SKIP_EMBEDDING_MODEL_CHECK=true
                           Bypass collection embedding metadata mismatch errors.
 
-Common config.jsonc fields:
+Common config.conf fields:
   mcpServerName          Server name
   mcpServerVersion       Server version
   
@@ -360,18 +363,18 @@ Common config.jsonc fields:
                           coordinated. Set to false to disable filesystem
                           watching entirely (read-only / sandboxed environments).
 
-Example config.jsonc:
-  {
-    "embeddingProvider": "OpenRouter",
-    "embeddingModel": "qwen/qwen3-embedding-4b",
-    "openrouterApiKey": "sk-or-xxx",
-    "milvusAddress": "localhost:19530",
-    "milvusToken": "your-token",
-    "backgroundSync": true,
-    "syncIntervalMs": 60000
-  }
+Example config.conf:
+  embeddingProvider = OpenRouter
+  embeddingModel = qwen/qwen3-embedding-4b
+  openrouterApiKey = sk-or-xxx
+  milvusAddress = localhost:19530
+  milvusToken = your-token
+  backgroundSync = true
+  syncIntervalMs = 60000
 
 Start:
+  npx @hitmux/hce@latest
+  npx @hitmux/hitmux-context-engine@latest
   npx @hitmux/hitmux-context-engine-mcp@latest
         `);
 }

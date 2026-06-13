@@ -19,7 +19,7 @@ describe('Milvus compatibility diagnostics', () => {
         const message = milvusHybridCompatibilityError('Milvus createHybridCollection', error).message;
 
         expect(message).toContain('Milvus 2.4 or later');
-        expect(message).toContain('"hybridMode": false');
+        expect(message).toContain('hybridMode = false');
         expect(message).toContain('SparseFloatVector');
     });
 });

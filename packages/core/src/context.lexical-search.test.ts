@@ -781,7 +781,7 @@ describe('Context lexical search supplement', () => {
         expect(exactFilter).not.toContain('config');
     });
 
-    it('allows explicitly requested config files to outrank implementation references', async () => {
+    it('allows explicit targetRole=config to outrank implementation references', async () => {
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.query
             .mockResolvedValueOnce([
@@ -812,10 +812,14 @@ describe('Context lexical search supplement', () => {
             vectorDatabase,
         });
 
-        const results = await context.semanticSearch('/repo', 'FooRegistry config file', 10, 0.3);
+        const results = await context.semanticSearch('/repo', 'FooRegistry config file', 10, 0.3, undefined, {
+            targetRole: 'config'
+        });
         const paths = results.map(result => result.relativePath);
 
         expect(paths.indexOf('src/config/fooConfig.ts')).toBeLessThan(paths.indexOf('src/app/fooBootstrap.ts'));
+        expect(results[0].resultGroup).toBe('docs_config');
+        expect(results[0].isPrimary).toBe(true);
     });
 
     it('keeps implementation owner first for ambiguous role words but honors explicit role requests', async () => {
@@ -900,7 +904,9 @@ describe('Context lexical search supplement', () => {
             vectorDatabase: explicitVectorDatabase,
         });
 
-        const explicitResults = await explicitContext.semanticSearch('/repo', 'FooRegistry config file', 10, 0.3);
+        const explicitResults = await explicitContext.semanticSearch('/repo', 'FooRegistry config file', 10, 0.3, undefined, {
+            targetRole: 'config'
+        });
         const explicitPaths = explicitResults.map(result => result.relativePath);
 
         expect(explicitPaths.indexOf('src/config/fooConfig.ts')).toBeLessThan(explicitPaths.indexOf('src/app/fooBootstrap.ts'));
@@ -1030,6 +1036,324 @@ describe('Context lexical search supplement', () => {
 
         expect(results[0].relativePath).toBe('src/styles/index.less');
         expect(results[1].relativePath).toBe('src/ui/interfaces/battle/manualCannonPanel.ts');
+    });
+
+    it('groups semantic-only results by explicit default implementation target', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            {
+                document: {
+                    id: 'test',
+                    vector: [1, 0, 0],
+                    content: 'it("starts the countdown", () => startCountdown());',
+                    relativePath: 'src/rooms/GameRoom.test.ts',
+                    startLine: 1,
+                    endLine: 8,
+                    fileExtension: '.ts',
+                    metadata: { language: 'typescript', fileRole: 'test' },
+                    fileRole: 'test',
+                },
+                score: 0.99,
+            },
+            {
+                document: {
+                    id: 'implementation',
+                    vector: [1, 0, 0],
+                    content: 'export class GameRoom { startCountdown() {} }',
+                    relativePath: 'src/rooms/GameRoom.ts',
+                    startLine: 1,
+                    endLine: 20,
+                    fileExtension: '.ts',
+                    metadata: { language: 'typescript', fileRole: 'implementation' },
+                    fileRole: 'implementation',
+                },
+                score: 0.9,
+            },
+            {
+                document: {
+                    id: 'docs',
+                    vector: [1, 0, 0],
+                    content: 'GameRoom countdown docs',
+                    relativePath: 'docs/game-room.md',
+                    startLine: 1,
+                    endLine: 4,
+                    fileExtension: '.md',
+                    metadata: { language: 'markdown', fileRole: 'docs' },
+                    fileRole: 'docs',
+                },
+                score: 0.88,
+            },
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'go', 3, 0.3);
+
+        expect(results.map(result => result.relativePath)).toEqual([
+            'src/rooms/GameRoom.ts',
+            'src/rooms/GameRoom.test.ts',
+            'docs/game-room.md',
+        ]);
+        expect(results.map(result => result.resultGroup)).toEqual([
+            'implementation',
+            'related_tests',
+            'docs_config',
+        ]);
+        expect(results.map(result => result.isPrimary)).toEqual([true, false, false]);
+    });
+
+    it('reranks implementation matches by structure before semantic drift inside the same group', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'network-fog',
+                content: 'render network towers monsters buildings and bullets through fog state',
+                relativePath: 'src/network/rendering/networkFog.ts',
+                startLine: 1,
+                endLine: 20,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                    chunkRole: 'reference',
+                },
+            }, 0.99),
+            createVectorResult({
+                id: 'render-proxy',
+                content: [
+                    'export class RenderProxy {',
+                    '    translateNetworkTowers(): void {}',
+                    '    translateNetworkMonsters(): void {}',
+                    '    translateNetworkBuildings(): void {}',
+                    '    translateNetworkBullets(): void {}',
+                    '}',
+                ].join('\n'),
+                relativePath: 'src/network/rendering/renderProxy.ts',
+                startLine: 1,
+                endLine: 40,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                },
+            }, 0.72),
+            createVectorResult({
+                id: 'tower-renderer',
+                content: 'render tower sprites and monster overlays',
+                relativePath: 'src/towers/rendering/towerRenderer.ts',
+                startLine: 1,
+                endLine: 20,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                    chunkRole: 'reference',
+                },
+            }, 0.95),
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch(
+            '/repo',
+            'client render proxies translate network towers monsters buildings and bullets',
+            5,
+            0.3
+        );
+
+        expect(results[0]).toMatchObject({
+            relativePath: 'src/network/rendering/renderProxy.ts',
+            resultGroup: 'implementation',
+            isPrimary: true,
+        });
+    });
+
+    it('does not let broad path and content terms outrank stronger semantic implementation matches', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'expected-owner',
+                content: 'export class EnergyCalculator { calculateIncome(): number { return 0; } }',
+                relativePath: 'server/src/systems/energy/energyCalculator.ts',
+                startLine: 1,
+                endLine: 20,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                },
+            }, 0.95),
+            createVectorResult({
+                id: 'broad-token-match',
+                content: 'territory mines territory production rules mines territory production rules',
+                relativePath: 'src/systems/territory/territory.ts',
+                startLine: 1,
+                endLine: 20,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                },
+            }, 0.9),
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch(
+            '/repo',
+            'server calculates energy income from mines territory and production rules',
+            5,
+            0.3
+        );
+
+        expect(results.map(result => result.relativePath)).toEqual([
+            'server/src/systems/energy/energyCalculator.ts',
+            'src/systems/territory/territory.ts',
+        ]);
+    });
+
+    it('does not treat actor words as specific owner matches for camel case basenames', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'expected-owner',
+                content: 'export class TerritoryCalculator { computeOwnership(): void {} }',
+                relativePath: 'server/src/systems/territory/territoryCalculator.ts',
+                startLine: 1,
+                endLine: 20,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                },
+            }, 0.95),
+            createVectorResult({
+                id: 'multiplayer-territory',
+                content: 'export class MultiPlayerTerritory { updatePlayerTerritory(): void {} }',
+                relativePath: 'src/systems/territory/multiPlayerTerritory.ts',
+                startLine: 1,
+                endLine: 20,
+                metadata: {
+                    language: 'typescript',
+                    fileRole: 'implementation',
+                },
+            }, 0.9),
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch(
+            '/repo',
+            'server computes territory ownership influence and expansion from player structures',
+            5,
+            0.3
+        );
+
+        expect(results.map(result => result.relativePath)).toEqual([
+            'server/src/systems/territory/territoryCalculator.ts',
+            'src/systems/territory/multiPlayerTerritory.ts',
+        ]);
+    });
+
+    it('reserves related result slots when primary matches fill the output limit', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            ...Array.from({ length: 6 }, (_, index) => ({
+                document: {
+                    id: `implementation-${index}`,
+                    vector: [1, 0, 0],
+                    content: `export function implementation${index}() {}`,
+                    relativePath: `src/impl${index}.ts`,
+                    startLine: 1,
+                    endLine: 4,
+                    fileExtension: '.ts',
+                    metadata: { language: 'typescript', fileRole: 'implementation' },
+                    fileRole: 'implementation',
+                },
+                score: 1 - index * 0.01,
+            })),
+            {
+                document: {
+                    id: 'test',
+                    vector: [1, 0, 0],
+                    content: 'it("covers implementation", () => implementation0());',
+                    relativePath: 'src/impl0.test.ts',
+                    startLine: 1,
+                    endLine: 8,
+                    fileExtension: '.ts',
+                    metadata: { language: 'typescript', fileRole: 'test' },
+                    fileRole: 'test',
+                },
+                score: 0.8,
+            },
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'go', 5, 0.3);
+
+        expect(results).toHaveLength(5);
+        expect(results.slice(0, 4).every(result => result.isPrimary)).toBe(true);
+        expect(results[4].relativePath).toBe('src/impl0.test.ts');
+        expect(results[4].resultGroup).toBe('related_tests');
+        expect(results[4].isPrimary).toBe(false);
+    });
+
+    it('can return only explicit test primary results', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            {
+                document: {
+                    id: 'implementation',
+                    vector: [1, 0, 0],
+                    content: 'export class GameRoom {}',
+                    relativePath: 'src/rooms/GameRoom.ts',
+                    startLine: 1,
+                    endLine: 20,
+                    fileExtension: '.ts',
+                    metadata: { language: 'typescript', fileRole: 'implementation' },
+                    fileRole: 'implementation',
+                },
+                score: 0.99,
+            },
+            {
+                document: {
+                    id: 'test',
+                    vector: [1, 0, 0],
+                    content: 'it("creates a GameRoom", () => new GameRoom());',
+                    relativePath: 'src/rooms/GameRoom.test.ts',
+                    startLine: 1,
+                    endLine: 8,
+                    fileExtension: '.ts',
+                    metadata: { language: 'typescript', fileRole: 'test' },
+                    fileRole: 'test',
+                },
+                score: 0.9,
+            },
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'go', 5, 0.3, undefined, {
+            targetRole: 'test',
+            includeRelated: false,
+        });
+
+        expect(results.map(result => result.relativePath)).toEqual(['src/rooms/GameRoom.test.ts']);
+        expect(results[0].resultGroup).toBe('related_tests');
+        expect(results[0].isPrimary).toBe(true);
     });
 
     it('normalizes string line ranges returned from lexical query rows', async () => {

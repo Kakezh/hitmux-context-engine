@@ -132,5 +132,13 @@ describe('Context hybrid collection recovery', () => {
 async function writeConfig(homeDir: string, config: Record<string, unknown>): Promise<void> {
     const configDir = path.join(homeDir, '.hitmux-context-engine');
     await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(path.join(configDir, 'config.jsonc'), JSON.stringify(config), 'utf-8');
+    await fs.writeFile(path.join(configDir, 'config.conf'), stringifyConf(config), 'utf-8');
+}
+
+function stringifyConf(config: Record<string, unknown>): string {
+    return Object.entries(config)
+        .flatMap(([key, value]) => Array.isArray(value)
+            ? value.map(item => `${key} = ${String(item)}`)
+            : [`${key} = ${String(value)}`])
+        .join('\n') + '\n';
 }

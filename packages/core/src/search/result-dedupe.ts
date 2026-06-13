@@ -138,6 +138,15 @@ function shouldReplaceDuplicate(existing: SemanticSearchResult, candidate: Seman
         return false;
     }
 
+    const existingOwnerSignal = hasExactOwnerSignal(existing);
+    const candidateOwnerSignal = hasExactOwnerSignal(candidate);
+    if (candidateOwnerSignal && !existingOwnerSignal) {
+        return true;
+    }
+    if (existingOwnerSignal && !candidateOwnerSignal) {
+        return false;
+    }
+
     const existingStartsWithDefinition = startsWithDefinition(existing.content);
     const candidateStartsWithDefinition = startsWithDefinition(candidate.content);
     if (candidateStartsWithDefinition && !existingStartsWithDefinition && scoresAreClose(existing.score, candidate.score)) {
@@ -156,6 +165,11 @@ function shouldReplaceDuplicate(existing: SemanticSearchResult, candidate: Seman
     }
 
     return false;
+}
+
+function hasExactOwnerSignal(result: SemanticSearchResult): boolean {
+    const reasons = result.scoreReasons ?? (result.scoreReason ? [result.scoreReason] : []);
+    return reasons.includes('exact_filename') || reasons.includes('exact_symbol_definition');
 }
 
 function normalizeResultContent(content: string): string {

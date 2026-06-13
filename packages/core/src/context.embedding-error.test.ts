@@ -118,7 +118,7 @@ describe('Context embedding failure handling', () => {
     async function writeConfig(config: Record<string, unknown>): Promise<void> {
         const configDir = path.join(homeDir, '.hitmux-context-engine');
         await fs.mkdir(configDir, { recursive: true });
-        await fs.writeFile(path.join(configDir, 'config.jsonc'), JSON.stringify(config), 'utf-8');
+        await fs.writeFile(path.join(configDir, 'config.conf'), stringifyConf(config), 'utf-8');
     }
 
     async function createProject(): Promise<string> {
@@ -203,3 +203,11 @@ describe('Context embedding failure handling', () => {
         await expect(context.indexCodebase(project)).rejects.toBeInstanceOf(IndexingVerificationError);
     });
 });
+
+function stringifyConf(config: Record<string, unknown>): string {
+    return Object.entries(config)
+        .flatMap(([key, value]) => Array.isArray(value)
+            ? value.map(item => `${key} = ${String(item)}`)
+            : [`${key} = ${String(value)}`])
+        .join('\n') + '\n';
+}

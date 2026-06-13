@@ -42,7 +42,15 @@ async function withTempHome(run: (tempRoot: string) => Promise<void>): Promise<v
 async function writeProjectConfig(projectRoot: string, config: Record<string, unknown>): Promise<void> {
     const configDir = path.join(projectRoot, ".hitmux-context-engine");
     await mkdir(configDir, { recursive: true });
-    await writeFile(path.join(configDir, "config.jsonc"), JSON.stringify(config), "utf-8");
+    await writeFile(path.join(configDir, "config.conf"), stringifyConf(config), "utf-8");
+}
+
+function stringifyConf(config: Record<string, unknown>): string {
+    return Object.entries(config)
+        .flatMap(([key, value]) => Array.isArray(value)
+            ? value.map(item => `${key} = ${String(item)}`)
+            : [`${key} = ${String(value)}`])
+        .join("\n") + "\n";
 }
 
 async function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {

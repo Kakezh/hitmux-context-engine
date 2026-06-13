@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
-import { Context, COLLECTION_LIMIT_MESSAGE, FileSynchronizer, IndexAbortError, normalizeCodebaseIdentityPath } from "@hitmux/hitmux-context-engine-core";
+import { Context, COLLECTION_LIMIT_MESSAGE, FileSynchronizer, IndexAbortError, normalizeCodebaseIdentityPath, type SearchTargetRole, type SymbolTraceEvidence, type SymbolTraceResult } from "@hitmux/hitmux-context-engine-core";
 import { SnapshotManager } from "./snapshot.js";
 import { getBooleanFromConfig, type CodebaseIndexOptions, type CodebaseInfoIndexed, type RequestSplitterType } from "./config.js";
 import { createRequestSplitter, isRequestSplitterType, resolveRequestSplitterType } from "./splitter.js";
@@ -12,6 +12,12 @@ import { ensureAbsolutePath, truncateContent, trackCodebasePath } from "./utils.
 const DEFAULT_SEARCH_RESULT_LIMIT = 20;
 const SOURCE_CONTEXT_WINDOW_LINES = 4;
 const SEARCH_CONTEXT_MAX_CHARS = 5000;
+const SEARCH_TRACE_FOLLOWUP_RESULT_LIMIT = 5;
+const SEARCH_TRACE_FOLLOWUP_SYMBOL_LIMIT = 3;
+const SEARCH_TRACE_EVIDENCE_RESULT_LIMIT = 3;
+const SEARCH_TRACE_EVIDENCE_SYMBOL_LIMIT = 1;
+const SEARCH_TRACE_EVIDENCE_MAX_FILES = 500;
+const SEARCH_TRACE_EVIDENCE_MAX_REFERENCES = 8;
 const NOT_INDEXED_INDEXING_HINT = "Please index it first using the index_codebase tool. Before first indexing, create a project ignore file such as .hceignore when you need to exclude generated, large, or private paths. The indexer automatically loads .*ignore files it finds in the project tree, so files like .hceignore, .gitignore, and .cursorignore are applied without passing ignoreFiles.";
 
 export class ToolHandlers {
@@ -107,6 +113,76 @@ export class ToolHandlers {
         return { limit: Math.floor(value) };
     }
 
+    private normalizeOptionalSearchTargetRole(value: unknown): { targetRole?: SearchTargetRole; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (value === "implementation" || value === "test" || value === "docs" || value === "config" || value === "all") {
+            return { targetRole: value };
+        }
+
+        return {
+            error: this.errorResponse("Error: search_code argument 'targetRole' must be one of: implementation, test, docs, config, all.")
+        };
+    }
+
+    private normalizeOptionalIncludeRelated(value: unknown): { includeRelated?: boolean; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (typeof value === "boolean") {
+            return { includeRelated: value };
+        }
+
+        return {
+            error: this.errorResponse("Error: search_code argument 'includeRelated' must be a boolean when provided.")
+        };
+    }
+
+    private normalizeOptionalIncludeTraceEvidence(value: unknown): { includeTraceEvidence?: boolean; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (typeof value === "boolean") {
+            return { includeTraceEvidence: value };
+        }
+
+        return {
+            error: this.errorResponse("Error: search_code argument 'includeTraceEvidence' must be a boolean when provided.")
+        };
+    }
+
+    private normalizeOptionalTraceNumber(toolName: string, field: string, value: unknown): { value?: number; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+            return {
+                error: this.errorResponse(`Error: ${toolName} argument '${field}' must be a positive number when provided.`)
+            };
+        }
+
+        return { value: Math.floor(value) };
+    }
+
+    private normalizeOptionalTraceBoolean(toolName: string, field: string, value: unknown): { value?: boolean; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (typeof value !== "boolean") {
+            return {
+                error: this.errorResponse(`Error: ${toolName} argument '${field}' must be a boolean when provided.`)
+            };
+        }
+
+        return { value };
+    }
+
     private formatSearchResultLocation(result: any): { location: string; warning?: string } {
         if (this.hasValidLineRange(result)) {
             return {
@@ -143,6 +219,261 @@ export class ToolHandlers {
         return typeof result?.scoreReason === "string" && result.scoreReason.length > 0
             ? result.scoreReason
             : undefined;
+    }
+
+    private formatSearchResultGroupLabel(group: unknown): string {
+        switch (group) {
+            case "implementation":
+                return "Implementation matches";
+            case "entry_exports":
+                return "Entry / exports";
+            case "related_tests":
+                return "Related tests";
+            case "docs_config":
+                return "Docs / config";
+            default:
+                return "Other matches";
+        }
+    }
+
+    private formatSymbolTraceSection(title: string, entries: SymbolTraceEvidence[]): string {
+        if (entries.length === 0) {
+            return `## ${title}\n\nNone found.`;
+        }
+
+        return `## ${title}\n\n` + entries.map((entry, index) => {
+            const matchedText = entry.matchedText ? `\n   Matched: ${entry.matchedText}` : "";
+            const moduleLink = entry.resolvedPath ? `\n   Module: ${entry.moduleSpecifier ?? ""} -> ${entry.resolvedPath}` : "";
+            const caller = entry.enclosingSymbol ? `\n   Caller: ${entry.enclosingSymbol}` : "";
+            const callee = entry.callTarget ? `\n   Callee: ${entry.callTarget}` : "";
+            return `${index + 1}. ${entry.relativePath}:${entry.line}${matchedText}${moduleLink}${caller}${callee}\n   ${entry.preview}`;
+        }).join("\n\n");
+    }
+
+    private formatSearchTraceFollowup(
+        result: any,
+        resultIndex: number,
+        codebasePath: string,
+        contextText: string
+    ): string {
+        if (resultIndex >= SEARCH_TRACE_FOLLOWUP_RESULT_LIMIT || typeof result?.relativePath !== "string") {
+            return "";
+        }
+        if (result?.resultGroup !== undefined && result.resultGroup !== "implementation" && result.resultGroup !== "entry_exports") {
+            return "";
+        }
+
+        const symbols = this.extractTraceFollowupSymbols(contextText);
+        if (symbols.length === 0) {
+            return "";
+        }
+
+        const suggestions = symbols
+            .slice(0, SEARCH_TRACE_FOLLOWUP_SYMBOL_LIMIT)
+            .map((symbol) => `trace_symbol({ path: "${codebasePath}", symbol: "${symbol}", startPath: "${result.relativePath}" })`);
+
+        return `   Structure follow-up: ${suggestions.join("; ")}\n`;
+    }
+
+    private async formatSearchTraceEvidence(
+        result: any,
+        resultIndex: number,
+        codebasePath: string,
+        contextText: string
+    ): Promise<string> {
+        if (resultIndex >= SEARCH_TRACE_EVIDENCE_RESULT_LIMIT || typeof result?.relativePath !== "string") {
+            return "";
+        }
+        if (result?.resultGroup !== undefined && result.resultGroup !== "implementation" && result.resultGroup !== "entry_exports") {
+            return "";
+        }
+
+        const symbols = this.extractTraceFollowupSymbols(contextText).slice(0, SEARCH_TRACE_EVIDENCE_SYMBOL_LIMIT);
+        if (symbols.length === 0) {
+            return "   Trace evidence: insufficient; no traceable implementation symbol found in this result.\n";
+        }
+
+        const traces: string[] = [];
+        for (const symbol of symbols) {
+            try {
+                const trace = await this.context.traceSymbol(codebasePath, symbol, {
+                    startPath: result.relativePath,
+                    startLine: this.hasValidLineRange(result) ? result.startLine : undefined,
+                    endLine: this.hasValidLineRange(result) ? result.endLine : undefined,
+                    maxFiles: SEARCH_TRACE_EVIDENCE_MAX_FILES,
+                    maxReferences: SEARCH_TRACE_EVIDENCE_MAX_REFERENCES,
+                    includeTests: true
+                });
+                traces.push(this.formatCompactTraceEvidence(result, symbol, trace));
+            } catch (error) {
+                traces.push(`   Trace evidence (${symbol}): insufficient; trace failed: ${error instanceof Error ? error.message : String(error)}\n`);
+            }
+        }
+
+        return traces.join("");
+    }
+
+    private formatCompactTraceEvidence(result: any, symbol: string, trace: SymbolTraceResult): string {
+        const hasEvidence = trace.definitions.length > 0
+            || trace.references.length > 0
+            || trace.imports.length > 0
+            || trace.exports.length > 0
+            || trace.relatedTests.length > 0;
+        const lines = [`   Trace evidence (${symbol}):`];
+
+        if (!hasEvidence) {
+            lines.push("      Evidence insufficient: no definitions, references, imports, exports, or related tests found.");
+            return `${lines.join("\n")}\n`;
+        }
+
+        this.pushCompactEvidenceChainLine(lines, result, symbol, trace);
+        this.pushCompactTraceLine(lines, "Owner definitions", trace.definitions);
+        this.pushCompactTraceLine(lines, "Entry references", trace.references);
+        this.pushCompactCallChainLine(lines, trace.references);
+        const moduleLinks = [...trace.imports, ...trace.exports]
+            .filter((entry) => entry.moduleSpecifier || entry.resolvedPath);
+        this.pushCompactTraceLine(lines, "Module links", moduleLinks, true);
+        this.pushCompactTraceLine(lines, "Related tests", trace.relatedTests);
+        if (trace.truncated) {
+            lines.push("      Warning: trace truncated by maxFiles or maxReferences.");
+        }
+        if (trace.warnings.length > 0) {
+            lines.push(`      Warning: ${trace.warnings.slice(0, 2).join("; ")}`);
+        }
+
+        return `${lines.join("\n")}\n`;
+    }
+
+    private pushCompactEvidenceChainLine(lines: string[], result: any, symbol: string, trace: SymbolTraceResult): void {
+        const steps: string[] = [];
+        const seen = new Set<string>();
+        const pushStep = (step: string | undefined) => {
+            if (!step || seen.has(step)) {
+                return;
+            }
+            seen.add(step);
+            steps.push(step);
+        };
+
+        if (typeof result?.relativePath === "string") {
+            const lineRange = this.hasValidLineRange(result)
+                ? `:${result.startLine}-${result.endLine}`
+                : "";
+            pushStep(`entry ${result.relativePath}${lineRange}`);
+        }
+
+        const moduleLinks = [...trace.imports, ...trace.exports]
+            .filter((entry) => entry.resolvedPath)
+            .slice(0, 3);
+        for (const entry of moduleLinks) {
+            pushStep(`${entry.kind} ${entry.relativePath}:${entry.line} -> ${entry.resolvedPath}`);
+        }
+
+        const owner = trace.definitions[0];
+        if (owner) {
+            pushStep(`owner ${owner.relativePath}:${owner.line} ${symbol}`);
+        }
+
+        const localCall = trace.references.find((entry) => entry.enclosingSymbol && entry.callTarget);
+        if (localCall) {
+            pushStep(`call ${localCall.relativePath}:${localCall.line} ${localCall.enclosingSymbol} -> ${localCall.callTarget}`);
+        } else if (trace.references[0]) {
+            const reference = trace.references[0];
+            pushStep(`reference ${reference.relativePath}:${reference.line}`);
+        }
+
+        if (steps.length > 1) {
+            lines.push(`      Evidence chain: ${steps.join(" => ")}`);
+        }
+    }
+
+    private pushCompactTraceLine(
+        lines: string[],
+        label: string,
+        entries: SymbolTraceEvidence[],
+        includeResolution: boolean = false
+    ): void {
+        if (entries.length === 0) {
+            return;
+        }
+
+        const formatted = entries.slice(0, 3).map((entry) => {
+            const resolved = includeResolution && entry.resolvedPath
+                ? ` -> ${entry.resolvedPath}`
+                : "";
+            return `${entry.relativePath}:${entry.line}${resolved}`;
+        }).join("; ");
+        lines.push(`      ${label}: ${formatted}`);
+    }
+
+    private pushCompactCallChainLine(lines: string[], entries: SymbolTraceEvidence[]): void {
+        const chains = entries
+            .filter((entry) => entry.enclosingSymbol && entry.callTarget)
+            .slice(0, 3)
+            .map((entry) => `${entry.relativePath}:${entry.line} ${entry.enclosingSymbol} -> ${entry.callTarget}`);
+
+        if (chains.length > 0) {
+            lines.push(`      Call chain: ${chains.join("; ")}`);
+        }
+    }
+
+    private extractTraceFollowupSymbols(content: string): string[] {
+        const symbols = new Set<string>();
+        const addSymbol = (value: string | undefined) => {
+            if (!value || !/^[A-Z][A-Za-z0-9_$]*$/.test(value) || this.isUnhelpfulTraceSymbol(value)) {
+                return;
+            }
+            symbols.add(value);
+        };
+
+        const patterns = [
+            /@delegate\s+([A-Z][A-Za-z0-9_$]*)\b/g,
+            /\b(?:new|extends|implements)\s+([A-Z][A-Za-z0-9_$]*)\b/g,
+            /:\s*([A-Z][A-Za-z0-9_$]*)\b/g,
+            /\bas\s+([A-Z][A-Za-z0-9_$]*)\b/g,
+            /\b(?:class|interface|type|enum)\s+([A-Z][A-Za-z0-9_$]*)\b/g
+        ];
+
+        for (const pattern of patterns) {
+            let match: RegExpExecArray | null;
+            while ((match = pattern.exec(content)) !== null) {
+                addSymbol(match[1]);
+            }
+        }
+
+        for (const importMatch of content.matchAll(/\bimport\s*\{([^}]+)\}/g)) {
+            for (const imported of importMatch[1].split(",")) {
+                const name = imported.trim().split(/\s+as\s+/)[0]?.trim();
+                addSymbol(name);
+            }
+        }
+
+        for (const exportMatch of content.matchAll(/\bexport\s*\{([^}]+)\}/g)) {
+            for (const exported of exportMatch[1].split(",")) {
+                const name = exported.trim().split(/\s+as\s+/)[0]?.trim();
+                addSymbol(name);
+            }
+        }
+
+        return [...symbols];
+    }
+
+    private isUnhelpfulTraceSymbol(symbol: string): boolean {
+        return new Set([
+            "Array",
+            "Boolean",
+            "Date",
+            "Error",
+            "Map",
+            "Number",
+            "Object",
+            "Promise",
+            "Record",
+            "Set",
+            "String",
+            "WeakMap",
+            "WeakSet"
+        ]).has(symbol);
     }
 
     private formatSearchResultContext(result: any, codebasePath: string): { context: string; source: string; warning?: string } {
@@ -1150,16 +1481,111 @@ export class ToolHandlers {
         }
     }
 
+    public async handleTraceSymbol(args: any): Promise<any> {
+        const validation = this.validateRequiredStringArgs("trace_symbol", args, ["path", "symbol"]);
+        if (validation.error) {
+            return validation.error;
+        }
+
+        const { path: codebasePath, symbol, startPath, startLine, endLine, maxFiles, maxReferences, includeTests } = args;
+        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(symbol.trim())) {
+            return this.errorResponse("Error: trace_symbol argument 'symbol' must be a single identifier.");
+        }
+        if (startPath !== undefined && (typeof startPath !== "string" || startPath.trim().length === 0)) {
+            return this.errorResponse("Error: trace_symbol argument 'startPath' must be a non-empty string when provided.");
+        }
+        const normalizedStartLine = this.normalizeOptionalTraceNumber("trace_symbol", "startLine", startLine);
+        if (normalizedStartLine.error) {
+            return normalizedStartLine.error;
+        }
+        const normalizedEndLine = this.normalizeOptionalTraceNumber("trace_symbol", "endLine", endLine);
+        if (normalizedEndLine.error) {
+            return normalizedEndLine.error;
+        }
+        if (normalizedStartLine.value !== undefined && normalizedEndLine.value !== undefined && normalizedEndLine.value < normalizedStartLine.value) {
+            return this.errorResponse("Error: trace_symbol argument 'endLine' must be greater than or equal to 'startLine'.");
+        }
+
+        const normalizedMaxFiles = this.normalizeOptionalTraceNumber("trace_symbol", "maxFiles", maxFiles);
+        if (normalizedMaxFiles.error) {
+            return normalizedMaxFiles.error;
+        }
+        const normalizedMaxReferences = this.normalizeOptionalTraceNumber("trace_symbol", "maxReferences", maxReferences);
+        if (normalizedMaxReferences.error) {
+            return normalizedMaxReferences.error;
+        }
+        const normalizedIncludeTests = this.normalizeOptionalTraceBoolean("trace_symbol", "includeTests", includeTests);
+        if (normalizedIncludeTests.error) {
+            return normalizedIncludeTests.error;
+        }
+
+        try {
+            const absolutePath = ensureAbsolutePath(codebasePath);
+            if (!fs.existsSync(absolutePath)) {
+                return this.errorResponse(`Error: Path '${absolutePath}' does not exist. Original input: '${codebasePath}'`);
+            }
+
+            const stat = fs.statSync(absolutePath);
+            if (!stat.isDirectory()) {
+                return this.errorResponse(`Error: Path '${absolutePath}' is not a directory`);
+            }
+
+            trackCodebasePath(absolutePath);
+
+            const trace = await this.context.traceSymbol(absolutePath, symbol.trim(), {
+                startPath: typeof startPath === "string" ? startPath.trim() : undefined,
+                startLine: normalizedStartLine.value,
+                endLine: normalizedEndLine.value,
+                maxFiles: normalizedMaxFiles.value,
+                maxReferences: normalizedMaxReferences.value,
+                includeTests: normalizedIncludeTests.value
+            });
+
+            const sections = [
+                this.formatSymbolTraceSection("Definitions", trace.definitions),
+                this.formatSymbolTraceSection("References", trace.references),
+                this.formatSymbolTraceSection("Imports", trace.imports),
+                this.formatSymbolTraceSection("Exports", trace.exports),
+                this.formatSymbolTraceSection("Related tests", trace.relatedTests)
+            ];
+            const warnings = trace.warnings.length > 0
+                ? `\n\nWarnings:\n${trace.warnings.map((warning: string) => `- ${warning}`).join("\n")}`
+                : "";
+            const truncated = trace.truncated ? "\nTrace truncated by maxFiles or maxReferences." : "";
+
+            return {
+                content: [{
+                    type: "text",
+                    text: `Trace for symbol '${trace.symbol}' in codebase '${trace.codebasePath}'. Scanned ${trace.scannedFiles} files.${truncated}\n\n${sections.join("\n\n")}${warnings}`
+                }]
+            };
+        } catch (error) {
+            return this.errorResponse(`Error tracing symbol: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
     public async handleSearchCode(args: any): Promise<any> {
         const validation = this.validateRequiredStringArgs("search_code", args, ["path", "query"]);
         if (validation.error) {
             return validation.error;
         }
 
-        const { path: codebasePath, query, limit, extensionFilter } = args;
+        const { path: codebasePath, query, limit, extensionFilter, targetRole, includeRelated, includeTraceEvidence } = args;
         const normalizedLimit = this.normalizeOptionalSearchLimit(limit);
         if (normalizedLimit.error) {
             return normalizedLimit.error;
+        }
+        const normalizedTargetRole = this.normalizeOptionalSearchTargetRole(targetRole);
+        if (normalizedTargetRole.error) {
+            return normalizedTargetRole.error;
+        }
+        const normalizedIncludeRelated = this.normalizeOptionalIncludeRelated(includeRelated);
+        if (normalizedIncludeRelated.error) {
+            return normalizedIncludeRelated.error;
+        }
+        const normalizedIncludeTraceEvidence = this.normalizeOptionalIncludeTraceEvidence(includeTraceEvidence);
+        if (normalizedIncludeTraceEvidence.error) {
+            return normalizedIncludeTraceEvidence.error;
         }
 
         try {
@@ -1274,7 +1700,11 @@ export class ToolHandlers {
                 query,
                 resultLimit,
                 0.3,
-                filterExpr
+                filterExpr,
+                {
+                    targetRole: normalizedTargetRole.targetRole,
+                    includeRelated: normalizedIncludeRelated.includeRelated
+                }
             );
 
             console.log(`[SEARCH] ✅ Search completed! Found ${searchResults.length} results using ${embeddingProvider.getProvider()} embeddings`);
@@ -1313,22 +1743,35 @@ export class ToolHandlers {
 
             // Format results
             const useFallbackMatchLabel = searchResultsAreFallbackMatches(filenameQueryStatus);
-            const formattedResults = searchResults.map((result: any, index: number) => {
+            const formattedResultsByGroup = new Map<string, string[]>();
+            for (let index = 0; index < searchResults.length; index++) {
+                const result: any = searchResults[index];
                 const { location, warning } = this.formatSearchResultLocation(result);
                 const scoreReason = this.formatSearchScoreReason(result);
                 const sourceContext = this.formatSearchResultContext(result, searchCodebasePath);
                 const codebaseInfo = path.basename(searchCodebasePath);
                 const resultLabel = useFallbackMatchLabel ? "Fallback match" : "Source context";
                 const warnings = [warning, sourceContext.warning].filter((value): value is string => typeof value === "string" && value.length > 0);
+                const groupLabel = this.formatSearchResultGroupLabel(result.resultGroup);
+                const traceEvidence = normalizedIncludeTraceEvidence.includeTraceEvidence === true
+                    ? await this.formatSearchTraceEvidence(result, index, searchCodebasePath, sourceContext.context)
+                    : this.formatSearchTraceFollowup(result, index, searchCodebasePath, sourceContext.context);
 
-                return `${index + 1}. ${resultLabel} (${result.language}) [${codebaseInfo}]\n` +
+                const formattedResult = `${index + 1}. ${resultLabel} (${result.language}) [${codebaseInfo}]\n` +
                     `   Location: ${location}\n` +
                     warnings.map((value) => `   Warning: ${value}\n`).join('') +
                     `   Context source: ${sourceContext.source}\n` +
-                    (scoreReason ? `   Score reason: ${scoreReason}\n` : '') +
+                    (scoreReason ? `   Match signals: ${scoreReason}\n` : '') +
+                    traceEvidence +
                     `   Rank: ${index + 1}\n` +
                     `   Context: \n\`\`\`${result.language}\n${sourceContext.context}\n\`\`\`\n`;
-            }).join('\n');
+                const groupResults = formattedResultsByGroup.get(groupLabel) ?? [];
+                groupResults.push(formattedResult);
+                formattedResultsByGroup.set(groupLabel, groupResults);
+            }
+            const formattedResults = [...formattedResultsByGroup.entries()]
+                .map(([groupLabel, groupResults]) => `## ${groupLabel}\n\n${groupResults.join('\n')}`)
+                .join('\n\n');
 
             const filenameNotice = formatFilenameQueryNotice(filenameQueryStatus, searchResults.length > 0);
             let resultMessage = useFallbackMatchLabel

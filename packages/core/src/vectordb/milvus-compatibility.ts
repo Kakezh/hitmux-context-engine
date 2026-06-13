@@ -12,6 +12,6 @@ export function milvusHybridCompatibilityError(operation: string, error: unknown
     return new Error(
         `${operation} failed: the connected Milvus server does not support Hitmux Context Engine hybrid search schema fields ` +
         `(SparseFloatVector/BM25). Use Milvus 2.4 or later, upgrade Zilliz Cloud/Milvus Lite to a compatible version, ` +
-        `or set "hybridMode": false in ~/.hitmux-context-engine/config.jsonc to use dense vector search. Original error: ${details}`
+        `or set hybridMode = false in ~/.hitmux-context-engine/config.conf to use dense vector search. Original error: ${details}`
     );
 }

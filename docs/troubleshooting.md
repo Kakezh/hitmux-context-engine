@@ -14,8 +14,8 @@ This calls `get_indexing_status` and usually shows progress, completion, or the 
 
 Hitmux Context Engine reads product options from:
 
-1. `~/.hitmux-context-engine/config.jsonc`
-2. `./.hitmux-context-engine/config.jsonc`
+1. `~/.hitmux-context-engine/config.conf`
+2. `./.hitmux-context-engine/config.conf`
 3. built-in defaults
 
 Environment variables and `~/.hitmux-context-engine/.env` are not used for MCP product options.
@@ -23,15 +23,15 @@ Environment variables and `~/.hitmux-context-engine/.env` are not used for MCP p
 Common checks:
 
 - The active provider has the matching API key field, such as `openrouterApiKey`, `openaiApiKey`, `voyageaiApiKey`, or `geminiApiKey`.
-- Local Milvus uses `"milvusAddress": "localhost:19530"`.
+- Local Milvus uses `milvusAddress = localhost:19530`.
 - Self-hosted remote Milvus uses the reachable host and port as `milvusAddress`; add `milvusToken` only if authentication is required.
 - Zilliz Cloud uses the cloud public endpoint as `milvusAddress` and the Personal Key as `milvusToken`.
-- SQLite, Chroma, Qdrant, LanceDB, and other database backends are not selectable from `config.jsonc`.
+- SQLite, Chroma, Qdrant, LanceDB, and other database backends are not selectable from `config.conf`.
 - Project config does not accidentally override global secrets with empty strings.
 
 ## Reconnect After Config Changes
 
-After changing JSONC config, reconnect or restart the MCP server.
+After changing conf config, reconnect or restart the MCP server.
 
 Claude Code:
 
@@ -62,7 +62,7 @@ When reporting an issue, include:
 
 - MCP client name and version.
 - MCP client server config.
-- Redacted `config.jsonc`.
+- Redacted `config.conf`.
 - `get_indexing_status` output.
 - Relevant debug logs.
 
@@ -86,7 +86,7 @@ For clients that do not resolve npm shims correctly, use `npx.cmd`:
   "mcpServers": {
     "hitmux-context-engine": {
       "command": "npx.cmd",
-      "args": ["-y", "@hitmux/hitmux-context-engine-mcp@latest"]
+      "args": ["-y", "@hitmux/hce@latest"]
     }
   }
 }
@@ -104,13 +104,11 @@ For clients that do not resolve npm shims correctly, use `npx.cmd`:
 
 Use Local Milvus plus Ollama:
 
-```jsonc
-{
-    "embeddingProvider": "Ollama",
-    "embeddingModel": "nomic-embed-text",
-    "ollamaHost": "http://127.0.0.1:11434",
-    "milvusAddress": "localhost:19530"
-}
+```conf
+embeddingProvider = Ollama
+embeddingModel = nomic-embed-text
+ollamaHost = http://127.0.0.1:11434
+milvusAddress = localhost:19530
 ```
 
-Database note: Use Local Milvus with `"milvusAddress": "localhost:19530"`. For self-hosted remote Milvus, replace it with the reachable host and port. For Zilliz Cloud, use the cloud public endpoint and add `"milvusToken"` with your Personal Key.
+Database note: Use Local Milvus with `milvusAddress = localhost:19530`. For self-hosted remote Milvus, replace it with the reachable host and port. For Zilliz Cloud, use the cloud public endpoint and add `milvusToken` with your Personal Key.

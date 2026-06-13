@@ -80,7 +80,7 @@ class ContextMcpServer {
         const details = errors
             .map((error) => `${error.path}: ${error.message}`)
             .join("\n");
-        return new Error(`Invalid config.jsonc. Fix the configuration before using MCP tools.\n${details}`);
+        return new Error(`Invalid config.conf. Fix the configuration before using MCP tools.\n${details}`);
     }
 
     private async getRuntime(): Promise<NonNullable<ContextMcpServer["runtime"]>> {
@@ -290,6 +290,21 @@ This tool is versatile and can be used before completing various tasks to retrie
                                     type: "number",
                                     description: "Optional override for the maximum number of results to return. Leave empty for the bounded default result set; use a specific value only when you need more or fewer results."
                                 },
+                                targetRole: {
+                                    type: "string",
+                                    enum: ["implementation", "test", "docs", "config", "all"],
+                                    description: "Optional explicit search target. Defaults to implementation, which keeps tests, docs, config, and barrel exports out of the primary result group."
+                                },
+                                includeRelated: {
+                                    type: "boolean",
+                                    description: "Optional: include non-primary result groups such as entry/exports, related tests, docs, and config. Defaults to true.",
+                                    default: true
+                                },
+                                includeTraceEvidence: {
+                                    type: "boolean",
+                                    description: "Optional: attach compact trace_symbol evidence for a small number of top implementation or entry results. Defaults to false.",
+                                    default: false
+                                },
                                 extensionFilter: {
                                     type: "array",
                                     items: {
@@ -300,6 +315,53 @@ This tool is versatile and can be used before completing various tasks to retrie
                                 }
                             },
                             required: ["path", "query"]
+                        }
+                    },
+                    {
+                        name: "trace_symbol",
+                        description: "Trace a symbol through current source files. Finds definitions, references, imports, exports, and related tests without requiring a schema migration.",
+                        inputSchema: {
+                            type: "object",
+                            properties: {
+                                path: {
+                                    type: "string",
+                                    description: "ABSOLUTE path to the codebase directory to trace in."
+                                },
+                                symbol: {
+                                    type: "string",
+                                    description: "Identifier to trace, such as a class, function, method, type, or variable name."
+                                },
+                                startPath: {
+                                    type: "string",
+                                    description: "Optional relative or absolute file path to scan first, usually a top search result or known entry point."
+                                },
+                                startLine: {
+                                    type: "number",
+                                    description: "Optional 1-based start line inside startPath to prioritize evidence near a current search result.",
+                                    minimum: 1
+                                },
+                                endLine: {
+                                    type: "number",
+                                    description: "Optional 1-based end line inside startPath to prioritize evidence near a current search result.",
+                                    minimum: 1
+                                },
+                                maxFiles: {
+                                    type: "number",
+                                    description: "Optional maximum number of source files to scan. Defaults to 1000.",
+                                    minimum: 1
+                                },
+                                maxReferences: {
+                                    type: "number",
+                                    description: "Optional maximum number of entries per evidence section. Defaults to 40.",
+                                    minimum: 1
+                                },
+                                includeTests: {
+                                    type: "boolean",
+                                    description: "Optional: include related test evidence. Defaults to true.",
+                                    default: true
+                                }
+                            },
+                            required: ["path", "symbol"]
                         }
                     },
                     {
@@ -359,6 +421,8 @@ This tool is versatile and can be used before completing various tasks to retrie
                     return await runtime.toolHandlers.handleIndexCodebase(args);
                 case "search_code":
                     return await runtime.toolHandlers.handleSearchCode(args);
+                case "trace_symbol":
+                    return await runtime.toolHandlers.handleTraceSymbol(args);
                 case "clear_index":
                     return await runtime.toolHandlers.handleClearIndex(args);
                 case "get_indexing_status":

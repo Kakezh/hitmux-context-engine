@@ -9,7 +9,7 @@ export function createEmbeddingInstance(config: ContextMcpConfig): OpenAIEmbeddi
         case 'OpenAI': {
             if (!config.openaiApiKey) {
                 console.error(`[EMBEDDING] ❌ OpenAI API key is required but not provided`);
-                throw new Error('openaiApiKey is required in ~/.hitmux-context-engine/config.jsonc for OpenAI embedding provider');
+                throw new Error('openaiApiKey is required in ~/.hitmux-context-engine/config.conf for OpenAI embedding provider');
             }
             console.log(`[EMBEDDING] 🔧 Configuring OpenAI with model: ${config.embeddingModel}`);
             const openaiEmbedding = new OpenAIEmbedding({
@@ -24,7 +24,7 @@ export function createEmbeddingInstance(config: ContextMcpConfig): OpenAIEmbeddi
         case 'VoyageAI': {
             if (!config.voyageaiApiKey) {
                 console.error(`[EMBEDDING] ❌ VoyageAI API key is required but not provided`);
-                throw new Error('voyageaiApiKey is required in ~/.hitmux-context-engine/config.jsonc for VoyageAI embedding provider');
+                throw new Error('voyageaiApiKey is required in ~/.hitmux-context-engine/config.conf for VoyageAI embedding provider');
             }
             console.log(`[EMBEDDING] 🔧 Configuring VoyageAI with model: ${config.embeddingModel}`);
             const voyageEmbedding = new VoyageAIEmbedding({
@@ -38,7 +38,7 @@ export function createEmbeddingInstance(config: ContextMcpConfig): OpenAIEmbeddi
         case 'Gemini': {
             if (!config.geminiApiKey) {
                 console.error(`[EMBEDDING] ❌ Gemini API key is required but not provided`);
-                throw new Error('geminiApiKey is required in ~/.hitmux-context-engine/config.jsonc for Gemini embedding provider');
+                throw new Error('geminiApiKey is required in ~/.hitmux-context-engine/config.conf for Gemini embedding provider');
             }
             console.log(`[EMBEDDING] 🔧 Configuring Gemini with model: ${config.embeddingModel}`);
             const geminiEmbedding = new GeminiEmbedding({
@@ -53,7 +53,7 @@ export function createEmbeddingInstance(config: ContextMcpConfig): OpenAIEmbeddi
         case 'OpenRouter': {
             if (!config.openrouterApiKey) {
                 console.error(`[EMBEDDING] ❌ OpenRouter API key is required but not provided`);
-                throw new Error('openrouterApiKey is required in ~/.hitmux-context-engine/config.jsonc for OpenRouter embedding provider');
+                throw new Error('openrouterApiKey is required in ~/.hitmux-context-engine/config.conf for OpenRouter embedding provider');
             }
             console.log(`[EMBEDDING] 🔧 Configuring OpenRouter with model: ${config.embeddingModel}`);
             // Reuse OpenAIEmbedding with OpenRouter's OpenAI-compatible endpoint

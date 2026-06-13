@@ -51,7 +51,15 @@ async function withTempConfig(
 async function writeConfig(rootDir: string, config: Record<string, unknown>): Promise<void> {
     const configDir = path.join(rootDir, ".hitmux-context-engine");
     await mkdir(configDir, { recursive: true });
-    await writeFile(path.join(configDir, "config.jsonc"), `// test config\n${JSON.stringify(config, null, 4)}\n`, "utf-8");
+    await writeFile(path.join(configDir, "config.conf"), `# test config\n${stringifyConf(config)}`, "utf-8");
+}
+
+function stringifyConf(config: Record<string, unknown>): string {
+    return Object.entries(config)
+        .flatMap(([key, value]) => Array.isArray(value)
+            ? value.map(item => `${key} = ${String(item)}`)
+            : [`${key} = ${String(value)}`])
+        .join("\n") + "\n";
 }
 
 test("createMcpConfig defaults to OpenRouter qwen embeddings", async () => {

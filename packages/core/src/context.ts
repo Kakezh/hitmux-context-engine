@@ -17,7 +17,17 @@ import {
     DEFAULT_SEARCH_OUTPUT_FIELDS,
     STRUCTURED_METADATA_FIELDS
 } from './vectordb';
-import { SearchScoreReason, SemanticSearchResult } from './types';
+import {
+    SearchResultGroup,
+    SearchScoreReason,
+    SearchTargetRole,
+    SemanticSearchOptions,
+    SemanticSearchResult,
+    SymbolTraceEvidence,
+    SymbolTraceEvidenceKind,
+    SymbolTraceOptions,
+    SymbolTraceResult
+} from './types';
 import { configManager } from './utils/config-manager';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -62,6 +72,10 @@ export class IncrementalIndexTooLargeError extends Error {
 
 interface ReindexByChangeOptions {
     skipEffectiveLineLimit?: boolean;
+}
+
+interface TraceLineContext {
+    enclosingSymbol?: string;
 }
 
 /**
@@ -153,6 +167,21 @@ interface RankedSearchResult extends SemanticSearchResult {
     ownerTier: number;
     originalRank: number;
     lexicalMetadata?: QueryRow;
+}
+
+interface GroupedSearchResult extends SemanticSearchResult {
+    fileRole: FileRole;
+    resultGroup: SearchResultGroup;
+    isPrimary: boolean;
+    roleSortPriority: number;
+    ownerSignalPriority: number;
+    structureScore: number;
+    originalOrder: number;
+}
+
+interface StructuralSearchTerms {
+    terms: string[];
+    variants: string[];
 }
 
 type QueryRow = Record<string, unknown>;
@@ -855,17 +884,512 @@ export class Context {
      * @param topK Number of results to return
      * @param threshold Similarity threshold
      */
-    async semanticSearch(codebasePath: string, query: string, topK: number = 5, threshold: number = 0.5, filterExpr?: string): Promise<SemanticSearchResult[]> {
+    async semanticSearch(
+        codebasePath: string,
+        query: string,
+        topK: number = 5,
+        threshold: number = 0.5,
+        filterExpr?: string,
+        options: SemanticSearchOptions = {}
+    ): Promise<SemanticSearchResult[]> {
         return this.withSearchTimeout(
-            this.performSemanticSearch(codebasePath, query, topK, threshold, filterExpr),
+            this.performSemanticSearch(codebasePath, query, topK, threshold, filterExpr, options),
             codebasePath,
             query
         );
     }
 
-    private async performSemanticSearch(codebasePath: string, query: string, topK: number = 5, threshold: number = 0.5, filterExpr?: string): Promise<SemanticSearchResult[]> {
+    async traceSymbol(
+        codebasePath: string,
+        symbol: string,
+        options: SymbolTraceOptions = {}
+    ): Promise<SymbolTraceResult> {
+        const normalizedSymbol = symbol.trim();
+        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalizedSymbol)) {
+            throw new Error('traceSymbol requires a valid identifier symbol.');
+        }
+
+        const traceOptions = this.normalizeSymbolTraceOptions(options);
+        const ignorePatterns = await this.loadIgnorePatterns(codebasePath);
+        const allFiles = await this.getCodeFiles(codebasePath, ignorePatterns);
+        const startPath = this.normalizeTraceStartPath(codebasePath, traceOptions.startPath);
+        const orderedFiles = this.orderTraceFiles(allFiles, codebasePath, startPath);
+        const filesToScan = orderedFiles.slice(0, traceOptions.maxFiles);
+        const escapedSymbol = this.escapeRegExp(normalizedSymbol);
+        const symbolRegex = new RegExp(`\\b${escapedSymbol}\\b`);
+        const definitions: SymbolTraceEvidence[] = [];
+        const references: SymbolTraceEvidence[] = [];
+        const imports: SymbolTraceEvidence[] = [];
+        const exports: SymbolTraceEvidence[] = [];
+        const relatedTests: SymbolTraceEvidence[] = [];
+        const warnings: string[] = [];
+        const referenceCollectionLimit = Math.min(traceOptions.maxReferences * 4, 1000);
+        let truncated = orderedFiles.length > filesToScan.length;
+
+        for (const filePath of filesToScan) {
+            let content: string;
+            try {
+                content = await fs.promises.readFile(filePath, 'utf-8');
+            } catch (error) {
+                warnings.push(`Unable to read ${path.relative(codebasePath, filePath).replace(/\\/g, '/')}: ${error instanceof Error ? error.message : String(error)}`);
+                continue;
+            }
+
+            const relativePath = path.relative(codebasePath, filePath).replace(/\\/g, '/');
+            const extension = path.posix.extname(relativePath);
+            const fileRole = classifyFileRole(relativePath, extension, content);
+            const localAliases = this.extractSymbolAliases(content, escapedSymbol);
+            const lineMatchers = this.createTraceLineMatchers(escapedSymbol, localAliases);
+            const lines = content.split(/\r?\n/);
+            const lineContexts = this.extractTraceLineContexts(lines);
+
+            for (let index = 0; index < lines.length; index++) {
+                const line = lines[index];
+                const preview = line.trim();
+                if (preview.length === 0) {
+                    continue;
+                }
+
+                const lineNumber = index + 1;
+                const isDefinition = this.isTraceDefinitionLine(line, escapedSymbol);
+                const isImport = /\bimport\b/.test(line) && symbolRegex.test(line);
+                const isExport = /\bexport\b/.test(line) && symbolRegex.test(line);
+                const moduleSpecifier = isImport || isExport ? this.extractTraceModuleSpecifier(line) : undefined;
+                const resolvedPath = moduleSpecifier
+                    ? this.resolveTraceModulePath(codebasePath, relativePath, moduleSpecifier)
+                    : undefined;
+                const matchedReference = lineMatchers.find(matcher => matcher.regex.test(line));
+                const lineContext = lineContexts[index] ?? {};
+                const callTarget = matchedReference
+                    ? this.extractTraceCallTarget(line, normalizedSymbol, matchedReference.label)
+                    : undefined;
+
+                if (isDefinition) {
+                    this.pushTraceEvidence(definitions, {
+                        kind: 'definition',
+                        relativePath,
+                        line: lineNumber,
+                        preview,
+                        matchedText: normalizedSymbol,
+                        enclosingSymbol: lineContext.enclosingSymbol
+                    }, traceOptions.maxReferences);
+                }
+
+                if (isImport) {
+                    this.pushTraceEvidence(imports, {
+                        kind: 'import',
+                        relativePath,
+                        line: lineNumber,
+                        preview,
+                        matchedText: normalizedSymbol,
+                        moduleSpecifier,
+                        resolvedPath,
+                        enclosingSymbol: lineContext.enclosingSymbol
+                    }, traceOptions.maxReferences);
+                }
+
+                if (isExport) {
+                    this.pushTraceEvidence(exports, {
+                        kind: 'export',
+                        relativePath,
+                        line: lineNumber,
+                        preview,
+                        matchedText: normalizedSymbol,
+                        moduleSpecifier,
+                        resolvedPath,
+                        enclosingSymbol: lineContext.enclosingSymbol
+                    }, traceOptions.maxReferences);
+                }
+
+                if (matchedReference && !isDefinition && !isImport && !isExport && !this.isTraceCommentOnlyLine(preview)) {
+                    const added = this.pushTraceEvidence(references, {
+                        kind: 'reference',
+                        relativePath,
+                        line: lineNumber,
+                        preview,
+                        matchedText: matchedReference.label,
+                        enclosingSymbol: lineContext.enclosingSymbol,
+                        callTarget
+                    }, referenceCollectionLimit);
+                    truncated = truncated || !added;
+                }
+
+                if (
+                    traceOptions.includeTests &&
+                    fileRole === 'test' &&
+                    symbolRegex.test(line) &&
+                    !this.isTraceCommentOnlyLine(preview)
+                ) {
+                    this.pushTraceEvidence(relatedTests, {
+                        kind: 'related_test',
+                        relativePath,
+                        line: lineNumber,
+                        preview,
+                        matchedText: normalizedSymbol,
+                        enclosingSymbol: lineContext.enclosingSymbol
+                    }, traceOptions.maxReferences);
+                }
+            }
+        }
+
+        const orderedReferences = this.orderTraceReferences(references, startPath, traceOptions);
+        truncated = truncated || orderedReferences.length > traceOptions.maxReferences;
+
+        return {
+            symbol: normalizedSymbol,
+            codebasePath,
+            definitions,
+            references: orderedReferences.slice(0, traceOptions.maxReferences),
+            imports,
+            exports,
+            relatedTests,
+            scannedFiles: filesToScan.length,
+            truncated,
+            warnings
+        };
+    }
+
+    private normalizeSymbolTraceOptions(options: SymbolTraceOptions): Required<SymbolTraceOptions> {
+        const maxFiles = Number.isFinite(options.maxFiles) && (options.maxFiles ?? 0) > 0
+            ? Math.min(Math.floor(options.maxFiles ?? 0), 2000)
+            : 1000;
+        const maxReferences = Number.isFinite(options.maxReferences) && (options.maxReferences ?? 0) > 0
+            ? Math.min(Math.floor(options.maxReferences ?? 0), 200)
+            : 40;
+        const startLine = Number.isFinite(options.startLine) && (options.startLine ?? 0) > 0
+            ? Math.floor(options.startLine ?? 0)
+            : 0;
+        const endLine = Number.isFinite(options.endLine) && (options.endLine ?? 0) >= startLine && startLine > 0
+            ? Math.floor(options.endLine ?? 0)
+            : 0;
+
+        return {
+            startPath: typeof options.startPath === 'string' ? options.startPath : '',
+            startLine,
+            endLine,
+            maxFiles,
+            maxReferences,
+            includeTests: options.includeTests !== false
+        };
+    }
+
+    private normalizeTraceStartPath(codebasePath: string, startPath: string): string {
+        if (startPath.trim().length === 0) {
+            return '';
+        }
+
+        const absoluteStartPath = path.isAbsolute(startPath)
+            ? path.normalize(startPath)
+            : path.resolve(codebasePath, startPath);
+        const relativePath = path.relative(codebasePath, absoluteStartPath);
+        if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+            return '';
+        }
+
+        return relativePath.replace(/\\/g, '/');
+    }
+
+    private orderTraceFiles(files: string[], codebasePath: string, startPath: string): string[] {
+        return [...files].sort((a, b) => {
+            const relativeA = path.relative(codebasePath, a).replace(/\\/g, '/');
+            const relativeB = path.relative(codebasePath, b).replace(/\\/g, '/');
+            const priorityA = startPath.length > 0 && relativeA === startPath ? 0 : 1;
+            const priorityB = startPath.length > 0 && relativeB === startPath ? 0 : 1;
+            return priorityA - priorityB || relativeA.localeCompare(relativeB);
+        });
+    }
+
+    private extractSymbolAliases(content: string, escapedSymbol: string): string[] {
+        const aliases = new Set<string>();
+        const aliasPatterns = [
+            new RegExp(`\\b([A-Za-z_$][A-Za-z0-9_$]*)\\s*:\\s*${escapedSymbol}\\b`, 'g'),
+            new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*new\\s+${escapedSymbol}\\b`, 'g'),
+            new RegExp(`\\bthis\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*new\\s+${escapedSymbol}\\b`, 'g')
+        ];
+
+        for (const pattern of aliasPatterns) {
+            let match: RegExpExecArray | null;
+            while ((match = pattern.exec(content)) !== null) {
+                aliases.add(match[1]);
+            }
+        }
+
+        return [...aliases];
+    }
+
+    private extractTraceLineContexts(lines: string[]): TraceLineContext[] {
+        const contexts: TraceLineContext[] = [];
+        let braceDepth = 0;
+        let currentClass: { name: string; depth: number } | undefined;
+        let currentScope: { name: string; depth: number } | undefined;
+
+        for (let index = 0; index < lines.length; index++) {
+            const line = lines[index];
+            const trimmed = line.trim();
+
+            while (currentScope && braceDepth < currentScope.depth) {
+                currentScope = undefined;
+            }
+            while (currentClass && braceDepth < currentClass.depth) {
+                currentClass = undefined;
+            }
+
+            const classMatch = trimmed.match(/\b(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/);
+            if (classMatch) {
+                currentClass = { name: classMatch[1], depth: braceDepth + 1 };
+            }
+
+            const functionName = this.extractTraceEnclosingFunctionName(trimmed);
+            if (functionName) {
+                currentScope = {
+                    name: currentClass ? `${currentClass.name}.${functionName}` : functionName,
+                    depth: braceDepth + 1
+                };
+            }
+
+            contexts[index] = {
+                enclosingSymbol: currentScope?.name ?? currentClass?.name
+            };
+
+            braceDepth += this.countTraceBraceDelta(line);
+            if (braceDepth < 0) {
+                braceDepth = 0;
+            }
+        }
+
+        return contexts;
+    }
+
+    private orderTraceReferences(
+        references: SymbolTraceEvidence[],
+        startPath: string,
+        options: Required<SymbolTraceOptions>
+    ): SymbolTraceEvidence[] {
+        return [...references].sort((a, b) => {
+            const rangePriority = Number(this.isPreferredTraceReference(b, startPath, options))
+                - Number(this.isPreferredTraceReference(a, startPath, options));
+            if (rangePriority !== 0) {
+                return rangePriority;
+            }
+
+            const pathPriority = Number(startPath.length > 0 && b.relativePath === startPath)
+                - Number(startPath.length > 0 && a.relativePath === startPath);
+            if (pathPriority !== 0) {
+                return pathPriority;
+            }
+
+            const callPriority = Number(Boolean(b.callTarget)) - Number(Boolean(a.callTarget));
+            if (callPriority !== 0) {
+                return callPriority;
+            }
+
+            const callerPriority = Number(Boolean(b.enclosingSymbol)) - Number(Boolean(a.enclosingSymbol));
+            if (callerPriority !== 0) {
+                return callerPriority;
+            }
+
+            return a.relativePath.localeCompare(b.relativePath) || a.line - b.line;
+        });
+    }
+
+    private isPreferredTraceReference(
+        reference: SymbolTraceEvidence,
+        startPath: string,
+        options: Required<SymbolTraceOptions>
+    ): boolean {
+        return startPath.length > 0
+            && reference.relativePath === startPath
+            && options.startLine > 0
+            && options.endLine > 0
+            && reference.line >= options.startLine
+            && reference.line <= options.endLine;
+    }
+
+    private extractTraceEnclosingFunctionName(trimmedLine: string): string | undefined {
+        const patterns = [
+            /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/,
+            /\b(?:async\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*[:=]\s*(?:async\s*)?\([^)]*\)\s*=>/,
+            /^(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|async\s+|override\s+|abstract\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*(?::\s*[^=]+)?\s*\{/
+        ];
+
+        for (const pattern of patterns) {
+            const match = trimmedLine.match(pattern);
+            if (match?.[1] && !this.isUnhelpfulTraceScopeName(match[1])) {
+                return match[1];
+            }
+        }
+
+        return undefined;
+    }
+
+    private isUnhelpfulTraceScopeName(name: string): boolean {
+        return new Set(['if', 'for', 'while', 'switch', 'catch', 'function']).has(name);
+    }
+
+    private countTraceBraceDelta(line: string): number {
+        let delta = 0;
+        let quote: string | undefined;
+        let escaped = false;
+        for (const char of line) {
+            if (quote) {
+                if (escaped) {
+                    escaped = false;
+                } else if (char === '\\') {
+                    escaped = true;
+                } else if (char === quote) {
+                    quote = undefined;
+                }
+                continue;
+            }
+
+            if (char === '"' || char === "'" || char === '`') {
+                quote = char;
+            } else if (char === '{') {
+                delta += 1;
+            } else if (char === '}') {
+                delta -= 1;
+            }
+        }
+
+        return delta;
+    }
+
+    private extractTraceCallTarget(line: string, symbol: string, matchedLabel: string): string | undefined {
+        const escapedLabel = this.escapeRegExp(matchedLabel);
+        const memberCall = line.match(new RegExp(`(?:\\bthis\\.)?\\b${escapedLabel}\\b\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\(`));
+        if (memberCall?.[1]) {
+            return `${symbol}.${memberCall[1]}`;
+        }
+
+        const directCall = line.match(new RegExp(`\\b${this.escapeRegExp(symbol)}\\s*\\(`));
+        if (directCall) {
+            return symbol;
+        }
+
+        return undefined;
+    }
+
+    private extractTraceModuleSpecifier(line: string): string | undefined {
+        const fromMatch = line.match(/\b(?:import|export)\b[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/);
+        if (fromMatch?.[1]) {
+            return fromMatch[1];
+        }
+
+        const sideEffectImportMatch = line.match(/\bimport\s*['"]([^'"]+)['"]/);
+        return sideEffectImportMatch?.[1];
+    }
+
+    private resolveTraceModulePath(
+        codebasePath: string,
+        importerRelativePath: string,
+        moduleSpecifier: string
+    ): string | undefined {
+        if (!moduleSpecifier.startsWith('.') && !moduleSpecifier.startsWith('/')) {
+            return undefined;
+        }
+
+        const importerAbsolutePath = path.resolve(codebasePath, importerRelativePath);
+        const importerDir = path.dirname(importerAbsolutePath);
+        const absoluteBase = moduleSpecifier.startsWith('/')
+            ? path.resolve(codebasePath, moduleSpecifier.replace(/^\/+/, ''))
+            : path.resolve(importerDir, moduleSpecifier);
+        const relativeBase = path.relative(codebasePath, absoluteBase);
+        if (relativeBase.startsWith('..') || path.isAbsolute(relativeBase)) {
+            return undefined;
+        }
+
+        for (const candidate of this.getTraceModulePathCandidates(absoluteBase)) {
+            if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+                return path.relative(codebasePath, candidate).replace(/\\/g, '/');
+            }
+        }
+
+        return undefined;
+    }
+
+    private getTraceModulePathCandidates(absoluteBase: string): string[] {
+        const candidates = new Set<string>();
+        const existingExtension = path.extname(absoluteBase);
+        const extensions = this.getTraceModuleExtensions();
+
+        candidates.add(absoluteBase);
+        if (existingExtension.length === 0) {
+            for (const extension of extensions) {
+                candidates.add(`${absoluteBase}${extension}`);
+            }
+        }
+
+        for (const extension of extensions) {
+            candidates.add(path.join(absoluteBase, `index${extension}`));
+        }
+
+        return [...candidates];
+    }
+
+    private getTraceModuleExtensions(): string[] {
+        const commonExtensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
+        return [...new Set([...this.supportedExtensions, ...commonExtensions])];
+    }
+
+    private createTraceLineMatchers(escapedSymbol: string, aliases: string[]): Array<{ regex: RegExp; label: string }> {
+        return [
+            { regex: new RegExp(`\\b${escapedSymbol}\\b`), label: escapedSymbol.replace(/\\/g, '') },
+            ...aliases.map(alias => ({
+                regex: new RegExp(`(?:\\bthis\\.)?\\b${this.escapeRegExp(alias)}\\b`),
+                label: alias
+            }))
+        ];
+    }
+
+    private isTraceDefinitionLine(line: string, escapedSymbol: string): boolean {
+        const definitionPatterns = [
+            new RegExp(`\\b(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:class|interface|function|type|enum|const|let|var)\\s+${escapedSymbol}\\b`),
+            new RegExp(`^\\s*(?:public\\s+|private\\s+|protected\\s+|static\\s+|readonly\\s+|async\\s+|override\\s+|abstract\\s+)*${escapedSymbol}\\s*\\(`),
+            new RegExp(`\\b(?:async\\s+)?def\\s+${escapedSymbol}\\s*\\(`),
+            new RegExp(`\\bfunc\\s+(?:\\([^)]+\\)\\s*)?${escapedSymbol}\\s*\\(`),
+            new RegExp(`\\b(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?fn\\s+${escapedSymbol}\\s*\\(`),
+            new RegExp(`\\b(?:pub(?:\\([^)]*\\))?\\s+)?(?:struct|enum|trait|mod)\\s+${escapedSymbol}\\b`)
+        ];
+
+        return definitionPatterns.some(pattern => pattern.test(line));
+    }
+
+    private isTraceCommentOnlyLine(preview: string): boolean {
+        return preview.startsWith('//')
+            || preview.startsWith('*')
+            || preview.startsWith('/*')
+            || preview.startsWith('#')
+            || preview.startsWith('<!--');
+    }
+
+    private pushTraceEvidence(
+        evidence: SymbolTraceEvidence[],
+        item: SymbolTraceEvidence,
+        limit: number
+    ): boolean {
+        if (evidence.length >= limit) {
+            return false;
+        }
+
+        evidence.push(item);
+        return true;
+    }
+
+    private escapeRegExp(value: string): string {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    private async performSemanticSearch(
+        codebasePath: string,
+        query: string,
+        topK: number = 5,
+        threshold: number = 0.5,
+        filterExpr?: string,
+        options: SemanticSearchOptions = {}
+    ): Promise<SemanticSearchResult[]> {
         const outputLimit = this.normalizeSearchOutputLimit(topK);
         const candidateLimit = this.getSearchCandidateLimit(outputLimit);
+        const searchOptions = this.normalizeSemanticSearchOptions(options);
         const isHybrid = this.getIsHybrid();
         const searchType = isHybrid === true ? 'hybrid search' : 'semantic search';
         console.log(`[Context] 🔍 Executing ${searchType}: "${query}" in ${codebasePath}`);
@@ -939,8 +1463,8 @@ export class Context {
                 result.score
             ));
 
-            const rankedResults = await this.addLexicalSearchResults(collectionName, query, candidateLimit, outputLimit, filterExpr, results);
-            const dedupedResults = this.deduplicateResults(rankedResults).slice(0, outputLimit);
+            const rankedResults = await this.addLexicalSearchResults(collectionName, query, candidateLimit, outputLimit, filterExpr, results, searchOptions);
+            const dedupedResults = this.applySearchResultGrouping(this.deduplicateResults(rankedResults), searchOptions, query, filterExpr, outputLimit);
             console.log(`[Context] ✅ Found ${results.length} results, ${dedupedResults.length} after dedup`);
             if (dedupedResults.length > 0) {
                 console.log(`[Context] 🔍 Top result score: ${dedupedResults[0].score}, path: ${dedupedResults[0].relativePath}`);
@@ -966,8 +1490,8 @@ export class Context {
                 result.score
             ));
 
-            const rankedResults = await this.addLexicalSearchResults(collectionName, query, candidateLimit, outputLimit, filterExpr, results);
-            const dedupedResults = this.deduplicateResults(rankedResults).slice(0, outputLimit);
+            const rankedResults = await this.addLexicalSearchResults(collectionName, query, candidateLimit, outputLimit, filterExpr, results, searchOptions);
+            const dedupedResults = this.applySearchResultGrouping(this.deduplicateResults(rankedResults), searchOptions, query, filterExpr, outputLimit);
             console.log(`[Context] ✅ Found ${results.length} results, ${dedupedResults.length} after dedup`);
             return dedupedResults;
         }
@@ -986,20 +1510,483 @@ export class Context {
         );
     }
 
+    private normalizeSemanticSearchOptions(options: SemanticSearchOptions): Required<SemanticSearchOptions> {
+        return {
+            targetRole: this.isSearchTargetRole(options.targetRole) ? options.targetRole : 'implementation',
+            includeRelated: options.includeRelated !== false
+        };
+    }
+
+    private isSearchTargetRole(value: unknown): value is SearchTargetRole {
+        return value === 'implementation'
+            || value === 'test'
+            || value === 'docs'
+            || value === 'config'
+            || value === 'all';
+    }
+
+    private getSearchFileRoleIntent(query: string, filterExpr: string | undefined, targetRole: SearchTargetRole): FileRoleIntent {
+        const inferredIntent = inferFileRoleIntent(query, filterExpr);
+        const preferredRoles = new Set<FileRole>();
+        if (targetRole === 'test') {
+            preferredRoles.add('test');
+        } else if (targetRole === 'docs') {
+            preferredRoles.add('docs');
+        } else if (targetRole === 'config') {
+            preferredRoles.add('config');
+        }
+
+        return {
+            preferredRoles,
+            explicitExtensions: inferredIntent.explicitExtensions
+        };
+    }
+
+    private applySearchResultGrouping(
+        results: SemanticSearchResult[],
+        options: Required<SemanticSearchOptions>,
+        query: string,
+        filterExpr: string | undefined,
+        outputLimit: number
+    ): SemanticSearchResult[] {
+        const roleIntent = this.getSearchFileRoleIntent(query, filterExpr, options.targetRole);
+        const structuralTerms = this.extractStructuralSearchTerms(query);
+        const decoratedResults: GroupedSearchResult[] = results.map((result, index) => {
+            const fileRole = this.resolveResultFileRole(result);
+            const resultGroup = this.getSearchResultGroup(fileRole);
+            const isPrimary = this.isPrimarySearchResult(fileRole, options.targetRole, roleIntent, result.relativePath, query);
+            const roleSortPriority = this.getSearchResultRoleSortPriority(fileRole, resultGroup, options.targetRole, roleIntent, result.relativePath, query);
+            const ownerSignalPriority = this.getOwnerSignalPriority(result);
+            const structureScore = this.getSearchResultStructureScore(result, structuralTerms, options.targetRole);
+            return {
+                ...result,
+                fileRole,
+                resultGroup,
+                isPrimary,
+                roleSortPriority,
+                ownerSignalPriority,
+                structureScore,
+                originalOrder: index
+            };
+        });
+
+        if (options.targetRole === 'all') {
+            return decoratedResults
+                .slice(0, outputLimit)
+                .map(result => this.stripGroupedSearchResultSortFields(result));
+        }
+
+        const orderedResults = options.includeRelated
+            ? decoratedResults.sort((a, b) => {
+                const primaryDelta = Number(b.isPrimary) - Number(a.isPrimary);
+                if (primaryDelta !== 0) return primaryDelta;
+
+                const rolePriorityDelta = a.roleSortPriority - b.roleSortPriority;
+                if (rolePriorityDelta !== 0) return rolePriorityDelta;
+
+                const ownerSignalDelta = a.ownerSignalPriority - b.ownerSignalPriority;
+                if (ownerSignalDelta !== 0) return ownerSignalDelta;
+
+                const structureDelta = b.structureScore - a.structureScore;
+                if (structureDelta !== 0) return structureDelta;
+
+                const scoreDelta = b.score - a.score;
+                if (scoreDelta !== 0) return scoreDelta;
+
+                return a.originalOrder - b.originalOrder;
+            })
+            : decoratedResults.filter(result => result.isPrimary);
+
+        if (!options.includeRelated) {
+            return orderedResults
+                .slice(0, outputLimit)
+                .map(result => this.stripGroupedSearchResultSortFields(result));
+        }
+
+        const primaryResults = orderedResults.filter(result => result.isPrimary);
+        const relatedResults = orderedResults.filter(result => !result.isPrimary);
+        const relatedReserve = this.getRelatedResultReserve(outputLimit, primaryResults.length, relatedResults.length);
+        const selectedPrimary = primaryResults.slice(0, Math.max(0, outputLimit - relatedReserve));
+        const selectedRelated = this.selectRelatedSearchResults(relatedResults, outputLimit - selectedPrimary.length);
+
+        return [...selectedPrimary, ...selectedRelated]
+            .slice(0, outputLimit)
+            .map(result => this.stripGroupedSearchResultSortFields(result));
+    }
+
+    private stripGroupedSearchResultSortFields(result: GroupedSearchResult): SemanticSearchResult {
+        const {
+            originalOrder: _originalOrder,
+            roleSortPriority: _roleSortPriority,
+            ownerSignalPriority: _ownerSignalPriority,
+            structureScore: _structureScore,
+            ...strippedResult
+        } = result;
+        return strippedResult;
+    }
+
+    private getRelatedResultReserve(outputLimit: number, primaryCount: number, relatedCount: number): number {
+        if (outputLimit <= 1 || relatedCount === 0) {
+            return 0;
+        }
+
+        if (primaryCount < outputLimit) {
+            return Math.min(relatedCount, outputLimit - primaryCount);
+        }
+
+        return Math.min(
+            relatedCount,
+            Math.max(1, Math.floor(outputLimit * 0.2)),
+            outputLimit - 1
+        );
+    }
+
+    private selectRelatedSearchResults(relatedResults: GroupedSearchResult[], limit: number): GroupedSearchResult[] {
+        if (limit <= 0) {
+            return [];
+        }
+
+        const selected: GroupedSearchResult[] = [];
+        const selectedOrders = new Set<number>();
+        const preferredGroups: SearchResultGroup[] = ['entry_exports', 'related_tests', 'docs_config', 'other'];
+
+        for (const group of preferredGroups) {
+            const result = relatedResults.find(candidate => candidate.resultGroup === group && !selectedOrders.has(candidate.originalOrder));
+            if (!result) {
+                continue;
+            }
+            selected.push(result);
+            selectedOrders.add(result.originalOrder);
+            if (selected.length >= limit) {
+                return selected;
+            }
+        }
+
+        for (const result of relatedResults) {
+            if (selectedOrders.has(result.originalOrder)) {
+                continue;
+            }
+            selected.push(result);
+            selectedOrders.add(result.originalOrder);
+            if (selected.length >= limit) {
+                break;
+            }
+        }
+
+        return selected;
+    }
+
+    private resolveResultFileRole(result: SemanticSearchResult): FileRole {
+        if (typeof result.fileRole === 'string' && this.isFileRole(result.fileRole)) {
+            return result.fileRole;
+        }
+
+        return classifyFileRole(result.relativePath);
+    }
+
+    private getSearchResultGroup(fileRole: FileRole): SearchResultGroup {
+        switch (fileRole) {
+            case 'implementation':
+                return 'implementation';
+            case 'barrel':
+            case 'entrypoint':
+                return 'entry_exports';
+            case 'test':
+                return 'related_tests';
+            case 'docs':
+            case 'config':
+            case 'style':
+            case 'generated':
+                return 'docs_config';
+        }
+    }
+
+    private isPrimarySearchResult(
+        fileRole: FileRole,
+        targetRole: SearchTargetRole,
+        roleIntent: FileRoleIntent,
+        relativePath: string,
+        query: string
+    ): boolean {
+        switch (targetRole) {
+            case 'implementation':
+                return fileRole === 'implementation'
+                    || isFileRoleExplicitlyRequested(fileRole, roleIntent, relativePath)
+                    || this.hasExplicitPathLiteralMatch(relativePath, query);
+            case 'test':
+                return fileRole === 'test';
+            case 'docs':
+                return fileRole === 'docs';
+            case 'config':
+                return fileRole === 'config';
+            case 'all':
+                return true;
+        }
+    }
+
+    private hasExplicitPathLiteralMatch(relativePath: string, query: string): boolean {
+        const normalizedPath = relativePath.replace(/\\/g, '/').toLowerCase();
+        const filename = path.basename(normalizedPath);
+        const basename = path.basename(filename, path.extname(filename));
+        const extension = path.extname(filename);
+        const queryTerms = query
+            .split(/[^A-Za-z0-9_./\\-]+/)
+            .map(term => term.trim().toLowerCase())
+            .filter(term => term.length >= 3);
+
+        return queryTerms.some(term => {
+            if (term.includes('/') || term.includes('\\')) {
+                return normalizedPath.includes(term.replace(/\\/g, '/'));
+            }
+
+            if (term.startsWith('.')) {
+                return extension === term;
+            }
+
+            if (term.includes('.')) {
+                return filename === term || normalizedPath.endsWith(`/${term}`);
+            }
+
+            return filename === term || basename === term;
+        });
+    }
+
+    private getSearchResultGroupPriority(group: SearchResultGroup | undefined): number {
+        switch (group) {
+            case 'implementation':
+                return 0;
+            case 'entry_exports':
+                return 1;
+            case 'related_tests':
+                return 2;
+            case 'docs_config':
+                return 3;
+            case 'other':
+            default:
+                return 4;
+        }
+    }
+
+    private getSearchResultRoleSortPriority(
+        fileRole: FileRole,
+        group: SearchResultGroup,
+        targetRole: SearchTargetRole,
+        roleIntent: FileRoleIntent,
+        relativePath: string,
+        query: string
+    ): number {
+        if (targetRole !== 'implementation') {
+            return this.isPrimarySearchResult(fileRole, targetRole, roleIntent, relativePath, query)
+                ? 0
+                : this.getSearchResultGroupPriority(group) + 1;
+        }
+
+        if (fileRole !== 'implementation' && (
+            isFileRoleExplicitlyRequested(fileRole, roleIntent, relativePath)
+            || this.hasExplicitPathLiteralMatch(relativePath, query)
+        )) {
+            return 0;
+        }
+
+        return this.getSearchResultGroupPriority(group) + 1;
+    }
+
+    private getOwnerSignalPriority(result: SemanticSearchResult): number {
+        const reasons = result.scoreReasons ?? (result.scoreReason ? [result.scoreReason] : []);
+        if (reasons.includes('exact_filename') || reasons.includes('exact_symbol_definition')) {
+            return 0;
+        }
+
+        if (reasons.includes('path_match')) {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    private getSearchResultStructureScore(
+        result: SemanticSearchResult,
+        terms: StructuralSearchTerms,
+        targetRole: SearchTargetRole
+    ): number {
+        const pathTokens = this.getStructuralTokens(result.relativePath);
+        const filename = path.basename(result.relativePath);
+        const basename = path.basename(filename, path.extname(filename));
+        const lowerFilename = filename.toLowerCase();
+        const lowerBasename = basename.toLowerCase();
+        const basenameTokens = this.getStructuralTokens(basename);
+        const lowerContent = result.content.toLowerCase();
+        const uniqueVariants = [...new Set(terms.variants)];
+
+        let score = this.getChunkRoleStructureScore(result.chunkRole, targetRole);
+        let basenameTermMatches = 0;
+
+        for (const term of uniqueVariants) {
+            if (lowerBasename === term || lowerFilename === term) {
+                basenameTermMatches++;
+                continue;
+            }
+
+            if (basenameTokens.has(term)) {
+                basenameTermMatches++;
+            }
+        }
+
+        const hasSpecificOwnerMatch = basenameTermMatches >= 2;
+        if (hasSpecificOwnerMatch) {
+            score += basenameTermMatches * 45;
+        }
+
+        const matchedPathTerms = uniqueVariants.filter(term => pathTokens.has(term)).length;
+        const matchedContentTerms = uniqueVariants.filter(term => lowerContent.includes(term)).length;
+        if (hasSpecificOwnerMatch) {
+            score += Math.min(matchedPathTerms * 8, 40);
+            score += Math.min(matchedContentTerms * 4, 48);
+        }
+
+        if (hasSpecificOwnerMatch && this.startsWithDefinitionLike(result.content)) {
+            score += targetRole === 'test' ? 20 : 60;
+        }
+
+        const reasons = result.scoreReasons ?? (result.scoreReason ? [result.scoreReason] : []);
+        if (reasons.includes('reference_match') && !reasons.includes('exact_filename') && !reasons.includes('exact_symbol_definition')) {
+            score -= 20;
+        }
+
+        return score;
+    }
+
+    private getChunkRoleStructureScore(chunkRole: string | undefined, targetRole: SearchTargetRole): number {
+        switch (chunkRole) {
+            case 'definition':
+                return targetRole === 'test' ? 40 : 140;
+            case 'method_body':
+                return targetRole === 'test' ? 30 : 120;
+            case 'test_case':
+                return targetRole === 'test' ? 160 : -80;
+            case 'assertion':
+                return targetRole === 'test' ? 90 : -60;
+            case 're_export':
+                return targetRole === 'implementation' ? -140 : -20;
+            case 'module_decl':
+                return targetRole === 'implementation' ? -60 : 0;
+            case 'reference':
+                return 0;
+            default:
+                return 0;
+        }
+    }
+
+    private extractStructuralSearchTerms(query: string): StructuralSearchTerms {
+        const terms = query
+            .split(/[^A-Za-z0-9_./-]+/)
+            .flatMap(term => this.splitStructuralToken(term))
+            .map(term => term.toLowerCase())
+            .filter(term => term.length >= 3 && !this.isStructuralStopword(term));
+        const uniqueTerms = [...new Set(terms)].slice(0, 24);
+        const variants = [...new Set(uniqueTerms.flatMap(term => this.getStructuralTermVariants(term)))];
+
+        return {
+            terms: uniqueTerms,
+            variants
+        };
+    }
+
+    private getStructuralTokens(value: string): Set<string> {
+        const tokens = value
+            .split(/[^A-Za-z0-9_]+/)
+            .flatMap(term => this.splitStructuralToken(term))
+            .map(term => term.toLowerCase())
+            .filter(term => term.length >= 2)
+            .flatMap(term => this.getStructuralTermVariants(term));
+
+        return new Set(tokens);
+    }
+
+    private splitStructuralToken(value: string): string[] {
+        return value
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+            .split(/[^A-Za-z0-9]+/)
+            .map(term => term.trim())
+            .filter(term => term.length > 0);
+    }
+
+    private getStructuralTermVariants(term: string): string[] {
+        const variants = new Set<string>([term]);
+        if (term.endsWith('ies') && term.length > 4) {
+            variants.add(`${term.slice(0, -3)}y`);
+        }
+        if (term.endsWith('es') && term.length > 4) {
+            variants.add(term.slice(0, -2));
+        }
+        if (term.endsWith('s') && term.length > 3) {
+            variants.add(term.slice(0, -1));
+        }
+
+        return [...variants];
+    }
+
+    private isStructuralStopword(term: string): boolean {
+        return [
+            'and',
+            'the',
+            'that',
+            'this',
+            'with',
+            'from',
+            'into',
+            'onto',
+            'used',
+            'uses',
+            'use',
+            'reads',
+            'read',
+            'shows',
+            'show',
+            'handles',
+            'handle',
+            'through',
+            'between',
+            'over',
+            'under',
+            'player',
+            'players',
+        ].includes(term);
+    }
+
+    private startsWithDefinitionLike(content: string): boolean {
+        const firstMeaningfulLine = content
+            .replace(/\r\n/g, '\n')
+            .split('\n')
+            .map(line => line.trim())
+            .find(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('*') && !line.startsWith('/*'));
+
+        if (!firstMeaningfulLine) {
+            return false;
+        }
+
+        return /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:class|interface|function|type|enum|const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(firstMeaningfulLine)
+            || /^(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(firstMeaningfulLine)
+            || /^func\s+(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(firstMeaningfulLine)
+            || /^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(firstMeaningfulLine)
+            || /^(?:public|private|protected|internal|static|final|abstract|override|virtual|async|sealed|synchronized|\s)*(?:[A-Za-z_$][A-Za-z0-9_$<>\[\],.?]*\s+)+[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test(firstMeaningfulLine);
+    }
+
     private async addLexicalSearchResults(
         collectionName: string,
         query: string,
         candidateLimit: number,
         outputLimit: number,
         filterExpr: string | undefined,
-        vectorResults: SemanticSearchResult[]
+        vectorResults: SemanticSearchResult[],
+        options: Required<SemanticSearchOptions>
     ): Promise<SemanticSearchResult[]> {
         const terms = this.extractLexicalSearchTerms(query);
         if (terms.recallTerms.length === 0) {
             return vectorResults;
         }
 
-        const roleIntent = inferFileRoleIntent(query, filterExpr);
+        const roleIntent = this.getSearchFileRoleIntent(query, filterExpr, options.targetRole);
         let exactRows: QueryRow[] = [];
         let broadRows: QueryRow[] = [];
         let exactCandidates: RankedLexicalCandidate[] = [];
@@ -1270,6 +2257,13 @@ export class Context {
             content: document.content
         });
 
+        const metadataRole = typeof document.metadata.fileRole === 'string' ? document.metadata.fileRole : '';
+        const fileRole = this.isFileRole(document.fileRole || '')
+            ? document.fileRole
+            : this.isFileRole(metadataRole)
+                ? metadataRole
+                : classifyFileRole(document.relativePath, document.fileExtension);
+
         return {
             content: document.content,
             relativePath: document.relativePath,
@@ -1277,7 +2271,9 @@ export class Context {
             language: document.metadata.language || 'unknown',
             score,
             scoreReason: 'semantic_match',
-            scoreReasons: ['semantic_match']
+            scoreReasons: ['semantic_match'],
+            chunkRole: typeof document.metadata.chunkRole === 'string' ? document.metadata.chunkRole : undefined,
+            fileRole
         };
     }
 
@@ -1395,7 +2391,9 @@ export class Context {
             relativePath: typeof row.relativePath === 'string' ? row.relativePath : '',
             ...lineRange,
             language: typeof metadata.language === 'string' ? metadata.language : this.getLanguageFromExtension(String(row.fileExtension || '')),
-            score: 0
+            score: 0,
+            chunkRole: this.getMetadataString(metadata, 'chunkRole') || undefined,
+            fileRole: this.getRowFileRole(row, metadata)
         };
         const lexicalScore = this.scoreLexicalMatchWithReasons(result, terms, metadata, roleIntent);
         const reasons: SearchScoreReason[] = lexicalScore.reasons.length > 0 ? lexicalScore.reasons : ['semantic_match'];
@@ -1403,6 +2401,18 @@ export class Context {
         result.scoreReason = this.getPrimaryScoreReason(reasons);
         result.scoreReasons = reasons;
         return result;
+    }
+
+    private getRowFileRole(row: QueryRow, metadata: QueryRow): FileRole {
+        const metadataRole = this.getMetadataString(metadata, 'fileRole');
+        if (this.isFileRole(metadataRole)) {
+            return metadataRole;
+        }
+
+        return classifyFileRole(
+            typeof row.relativePath === 'string' ? row.relativePath : '',
+            typeof row.fileExtension === 'string' ? row.fileExtension : undefined
+        );
     }
 
     private isQueryRow(value: unknown): value is QueryRow {
@@ -1623,7 +2633,7 @@ export class Context {
             timeoutHandle = setTimeout(() => {
                 reject(new SearchTimeoutError(
                     `Search timed out after ${this.searchTimeoutMs}ms for query "${query}" in codebase "${codebasePath}". ` +
-                    'Set searchTimeoutMs in ~/.hitmux-context-engine/config.jsonc to increase the timeout.'
+                    'Set searchTimeoutMs in ~/.hitmux-context-engine/config.conf to increase the timeout.'
                 ));
             }, this.searchTimeoutMs);
         });
@@ -2277,7 +3287,8 @@ export class Context {
             isDefinition,
             contentHash: crypto.createHash('sha1').update(content).digest('hex'),
             normalizedContentHash: getNormalizedContentHash(content),
-            fileRole: classifyFileRole(relativePath, extension),
+            chunkRole: typeof chunkMetadata.chunkRole === 'string' ? chunkMetadata.chunkRole : 'reference',
+            fileRole: classifyFileRole(relativePath, extension, content),
             pathSegment0: pathSegments[0] || '',
             pathSegment1: pathSegments[1] || '',
             pathSegment2: pathSegments[2] || '',

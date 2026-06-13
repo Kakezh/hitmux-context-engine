@@ -141,23 +141,42 @@ describe('AstCodeSplitter symbol metadata', () => {
             symbolKind: 'class',
             isDefinition: true,
             chunkKind: 'class_definition',
+            chunkRole: 'definition',
         });
         expect(metadataBySymbol.get('payloadPacker')).toMatchObject({
             symbolKind: 'function',
             isDefinition: true,
+            chunkRole: 'definition',
         });
         expect(metadataBySymbol.get('TowerRegistry')).toMatchObject({
             symbolKind: 'interface',
             isDefinition: true,
+            chunkRole: 'definition',
         });
         expect(metadataBySymbol.get('TowerId')).toMatchObject({
             symbolKind: 'type',
             isDefinition: true,
+            chunkRole: 'definition',
         });
         expect(metadataBySymbol.get('manualCannonPanel')).toMatchObject({
             symbolKind: 'const',
             isDefinition: true,
+            chunkRole: 'definition',
         });
+    });
+
+    it('marks TypeScript re-export chunks explicitly', async () => {
+        const splitter = new AstCodeSplitter(2000, 0);
+        const code = [
+            "export { RenderWorkerBridge } from './renderWorkerBridge';",
+            "export type { BridgePacket } from './types';",
+        ].join('\n');
+
+        const chunks = await splitter.split(code, 'typescript', '/repo/src/workers/index.ts');
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks.every((chunk) => chunk.metadata.chunkRole === 're_export')).toBe(true);
+        expect(chunks.every((chunk) => chunk.metadata.isDefinition === false)).toBe(true);
     });
 
     it('does not duplicate exported declarations through wrapper chunks', async () => {
@@ -216,6 +235,7 @@ describe('AstCodeSplitter symbol metadata', () => {
         expect(definitionChunks[0].content).toContain('export class BigRegistry');
         expect(definitionChunks[0].metadata.startLine).toBe(1);
         expect(chunks.slice(1).every((chunk) => chunk.metadata.symbolName !== 'BigRegistry')).toBe(true);
+        expect(chunks.slice(1).every((chunk) => chunk.metadata.chunkRole === 'method_body')).toBe(true);
     });
 
     it('keeps overlap local to sub-chunks of the same large definition', async () => {
@@ -257,6 +277,20 @@ describe('AstCodeSplitter cross-language definition metadata', () => {
             .filter(Boolean);
 
         expect(symbols).toEqual(expect.arrayContaining(['PyGreeter', 'greet', 'load_room']));
+        expect(chunks.find((chunk) => chunk.metadata.symbolName === 'load_room')?.metadata.chunkRole).toBe('definition');
+    });
+
+    it('marks Python test functions as test cases', async () => {
+        const splitter = new AstCodeSplitter(2000, 0);
+        const code = [
+            'def test_room_registry():',
+            '    assert build_room() is not None',
+        ].join('\n');
+
+        const chunks = await splitter.split(code, 'python', '/repo/tests/test_room_registry.py');
+        const testChunk = chunks.find((chunk) => chunk.metadata.symbolName === 'test_room_registry');
+
+        expect(testChunk?.metadata.chunkRole).toBe('test_case');
     });
 
     it('records Go definition symbols', async () => {
@@ -277,6 +311,26 @@ describe('AstCodeSplitter cross-language definition metadata', () => {
             .filter(Boolean);
 
         expect(symbols).toEqual(expect.arrayContaining(['RoomRegistry', 'BuildRoom', 'Register']));
+        expect(chunks.find((chunk) => chunk.metadata.symbolName === 'BuildRoom')?.metadata.chunkRole).toBe('definition');
+        expect(chunks.find((chunk) => chunk.content.trim() === 'package rooms')?.metadata.chunkRole).toBe('module_decl');
+    });
+
+    it('marks Go test functions as test cases', async () => {
+        const splitter = new AstCodeSplitter(2000, 0);
+        const code = [
+            'package rooms',
+            '',
+            'func TestBuildRoom(t *testing.T) {',
+            '    if BuildRoom() == nil {',
+            '        t.Fatal("missing room")',
+            '    }',
+            '}',
+        ].join('\n');
+
+        const chunks = await splitter.split(code, 'go', '/repo/rooms/registry_test.go');
+        const testChunk = chunks.find((chunk) => chunk.metadata.symbolName === 'TestBuildRoom');
+
+        expect(testChunk?.metadata.chunkRole).toBe('test_case');
     });
 
     it('records Rust definition symbols', async () => {
@@ -295,6 +349,39 @@ describe('AstCodeSplitter cross-language definition metadata', () => {
             .filter(Boolean);
 
         expect(symbols).toEqual(expect.arrayContaining(['RoomRegistry', 'spawn_room', 'RoomFactory']));
+        expect(chunks.find((chunk) => chunk.metadata.symbolName === 'spawn_room')?.metadata.chunkRole).toBe('definition');
+    });
+
+    it('marks Rust module declarations explicitly', async () => {
+        const splitter = new AstCodeSplitter(2000, 0);
+        const code = [
+            'pub mod rooms;',
+            'pub use rooms::RoomRegistry;',
+        ].join('\n');
+
+        const chunks = await splitter.split(code, 'rust', '/repo/src/mod.rs');
+
+        expect(chunks.some((chunk) => chunk.metadata.chunkRole === 'module_decl')).toBe(true);
+        expect(chunks.some((chunk) => chunk.metadata.chunkRole === 're_export')).toBe(true);
+    });
+
+    it('marks Java package declarations and test methods', async () => {
+        const splitter = new AstCodeSplitter(2000, 0);
+        const code = [
+            'package example.rooms;',
+            '',
+            'public class RoomRegistryTest {',
+            '    public void testBuildRoom() {',
+            '        assertTrue(true);',
+            '    }',
+            '}',
+        ].join('\n');
+
+        const chunks = await splitter.split(code, 'java', '/repo/src/RoomRegistryTest.java');
+        const methodChunk = chunks.find((chunk) => chunk.metadata.symbolName === 'testBuildRoom');
+
+        expect(chunks.find((chunk) => chunk.content.trim() === 'package example.rooms;')?.metadata.chunkRole).toBe('module_decl');
+        expect(methodChunk?.metadata.chunkRole).toBe('test_case');
     });
 
     it('keeps TSX and JSX language values while using parser branches', async () => {

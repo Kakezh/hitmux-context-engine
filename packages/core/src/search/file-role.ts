@@ -7,7 +7,7 @@ export interface FileRoleIntent {
 
 const STYLE_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less', '.styl', '.stylus', '.pcss']);
 const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.rst', '.adoc', '.txt']);
-const CONFIG_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.toml', '.ini', '.env']);
+const CONFIG_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.toml', '.ini', '.conf', '.env']);
 
 const CONFIG_FILENAMES = new Set([
     'package.json',
@@ -28,10 +28,14 @@ const CONFIG_FILENAMES = new Set([
     'tailwind.config.js',
 ]);
 
-export function classifyFileRole(relativePath: string, fileExtension?: string): FileRole {
+const ENTRYPOINT_BASENAMES = new Set(['main', 'app', 'server', 'client', 'bootstrap', 'startup']);
+const MODULE_INDEX_BASENAMES = new Set(['index', '__init__', 'mod']);
+
+export function classifyFileRole(relativePath: string, fileExtension?: string, content?: string): FileRole {
     const normalizedPath = relativePath.replace(/\\/g, '/');
     const lowerPath = normalizedPath.toLowerCase();
     const fileName = lowerPath.split('/').pop() || '';
+    const basename = getBasename(fileName);
     const extension = normalizeExtension(fileExtension || getExtension(fileName));
 
     if (isGeneratedPath(lowerPath, fileName)) {
@@ -52,6 +56,18 @@ export function classifyFileRole(relativePath: string, fileExtension?: string): 
 
     if (isConfigPath(lowerPath, fileName, extension)) {
         return 'config';
+    }
+
+    if (content && isPureBarrelFile(basename, extension, content)) {
+        return 'barrel';
+    }
+
+    if (content && isModuleIndexFile(basename, extension)) {
+        return hasRealImplementation(content, extension) ? 'implementation' : 'barrel';
+    }
+
+    if (isEntrypointFile(basename, extension)) {
+        return 'entrypoint';
     }
 
     return 'implementation';
@@ -107,7 +123,7 @@ export function inferFileRoleIntent(query: string, filterExpr?: string): FileRol
 function hasExplicitConfigIntent(lowerQuery: string): boolean {
     return /\b(?:config|configuration)\s+files?\b/.test(lowerQuery)
         || /\bfiles?\s+(?:config|configuration)\b/.test(lowerQuery)
-        || /\b(jsonc?|ya?ml|toml|ini|env)\b/.test(lowerQuery)
+        || /\b(jsonc?|ya?ml|toml|ini|conf|env)\b/.test(lowerQuery)
         || /(?:^|[\/\\])configs?(?:[\/\\]|$)/.test(lowerQuery);
 }
 
@@ -140,6 +156,11 @@ function getExtension(fileName: string): string {
     return lastDot > 0 ? basename.slice(lastDot) : '';
 }
 
+function getBasename(fileName: string): string {
+    const extension = getExtension(fileName);
+    return extension ? fileName.slice(0, -extension.length) : fileName;
+}
+
 function isGeneratedPath(lowerPath: string, fileName: string): boolean {
     return lowerPath.includes('/dist/')
         || lowerPath.includes('/build/')
@@ -153,6 +174,7 @@ function isGeneratedPath(lowerPath: string, fileName: string): boolean {
 }
 
 function isTestPath(lowerPath: string, fileName: string): boolean {
+    const basename = getBasename(fileName);
     return lowerPath.includes('/__tests__/')
         || lowerPath.includes('/test/')
         || lowerPath.includes('/tests/')
@@ -160,7 +182,15 @@ function isTestPath(lowerPath: string, fileName: string): boolean {
         || lowerPath.includes('/specs/')
         || fileName.includes('.test.')
         || fileName.includes('.spec.')
-        || fileName.includes('.e2e.');
+        || fileName.includes('.e2e.')
+        || fileName.endsWith('_test.go')
+        || fileName.endsWith('_test.py')
+        || fileName.startsWith('test_') && fileName.endsWith('.py')
+        || /^[a-z0-9_-]+test\.java$/.test(fileName)
+        || /^[a-z0-9_-]+tests\.cs$/.test(fileName)
+        || fileName.endsWith('_spec.rb')
+        || basename.endsWith('_spec')
+        || basename.endsWith('_test');
 }
 
 function isDocsPath(lowerPath: string, fileName: string, extension: string): boolean {
@@ -178,4 +208,95 @@ function isConfigPath(lowerPath: string, fileName: string, extension: string): b
         || fileName.includes('.config.')
         || fileName.startsWith('.')
         || CONFIG_EXTENSIONS.has(extension);
+}
+
+function isModuleIndexFile(basename: string, extension: string): boolean {
+    return MODULE_INDEX_BASENAMES.has(basename) && isCodeExtension(extension);
+}
+
+function isEntrypointFile(basename: string, extension: string): boolean {
+    return ENTRYPOINT_BASENAMES.has(basename) && isCodeExtension(extension);
+}
+
+function isCodeExtension(extension: string): boolean {
+    return [
+        '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+        '.py', '.go', '.rs', '.java', '.cs', '.rb',
+    ].includes(extension);
+}
+
+function isPureBarrelFile(basename: string, extension: string, content: string): boolean {
+    if (!isModuleIndexFile(basename, extension)) {
+        return false;
+    }
+
+    if (hasRealImplementation(content, extension)) {
+        return false;
+    }
+
+    const meaningfulLines = stripComments(content)
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+    if (meaningfulLines.length === 0) {
+        return false;
+    }
+
+    if (extension === '.py') {
+        return meaningfulLines.every(isPythonBarrelLine);
+    }
+
+    if (extension === '.rs') {
+        return meaningfulLines.every(isRustBarrelLine);
+    }
+
+    return meaningfulLines.every(isJavaScriptBarrelLine);
+}
+
+function hasRealImplementation(content: string, extension: string): boolean {
+    const stripped = stripComments(content);
+
+    if (extension === '.py') {
+        return /^\s*(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/m.test(stripped)
+            || /^\s*class\s+[A-Za-z_][A-Za-z0-9_]*\b/m.test(stripped);
+    }
+
+    if (extension === '.go') {
+        return /^\s*func\s+(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(/m.test(stripped)
+            || /^\s*type\s+[A-Za-z_][A-Za-z0-9_]*\s+(?:struct|interface)\b/m.test(stripped);
+    }
+
+    if (extension === '.rs') {
+        return /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/m.test(stripped)
+            || /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|impl)\s+[A-Za-z_][A-Za-z0-9_]*\b/m.test(stripped);
+    }
+
+    return /\b(?:class|interface|function|enum)\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(stripped)
+        || /\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>/.test(stripped);
+}
+
+function stripComments(content: string): string {
+    return content
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/^\s*#.*$/gm, '');
+}
+
+function isJavaScriptBarrelLine(line: string): boolean {
+    return /^import\s+(?:type\s+)?[\s\S]+;?$/.test(line)
+        || /^export\s+(?:type\s+)?(?:\*|\{[\s\S]*\})\s+from\s+['"][^'"]+['"];?$/.test(line)
+        || /^export\s+(?:type\s+)?\{[\s\S]*\};?$/.test(line);
+}
+
+function isPythonBarrelLine(line: string): boolean {
+    return /^from\s+\.+[A-Za-z0-9_.*]+\s+import\s+[\s\S]+$/.test(line)
+        || /^import\s+\.+[A-Za-z0-9_.*]+$/.test(line)
+        || /^__all__\s*=/.test(line);
+}
+
+function isRustBarrelLine(line: string): boolean {
+    return /^(?:pub\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*;?$/.test(line)
+        || /^pub\s+use\s+[\s\S]+;?$/.test(line)
+        || /^use\s+[\s\S]+;?$/.test(line);
 }

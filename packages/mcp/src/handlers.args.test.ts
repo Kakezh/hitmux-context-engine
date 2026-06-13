@@ -42,7 +42,15 @@ async function withTempDir(run: (tempRoot: string) => Promise<void>): Promise<vo
 async function writeProjectConfig(projectRoot: string, config: Record<string, unknown>): Promise<void> {
     const configDir = path.join(projectRoot, ".hitmux-context-engine");
     await mkdir(configDir, { recursive: true });
-    await writeFile(path.join(configDir, "config.jsonc"), JSON.stringify(config), "utf-8");
+    await writeFile(path.join(configDir, "config.conf"), stringifyConf(config), "utf-8");
+}
+
+function stringifyConf(config: Record<string, unknown>): string {
+    return Object.entries(config)
+        .flatMap(([key, value]) => Array.isArray(value)
+            ? value.map(item => `${key} = ${String(item)}`)
+            : [`${key} = ${String(value)}`])
+        .join("\n") + "\n";
 }
 
 test("index_codebase rejects missing path before path resolution", async () => {
@@ -205,6 +213,116 @@ test("search_code rejects missing query before search handling", async () => {
     assert.match(result.content[0].text, /'query'/);
 });
 
+test("trace_symbol rejects malformed arguments before tracing", async () => {
+    const handlers = createHandlers();
+
+    const missingSymbol = await handlers.handleTraceSymbol({ path: "/tmp/project" });
+    assert.equal(missingSymbol.isError, true);
+    assert.match(missingSymbol.content[0].text, /trace_symbol/);
+    assert.match(missingSymbol.content[0].text, /'symbol'/);
+
+    const invalidSymbol = await handlers.handleTraceSymbol({
+        path: "/tmp/project",
+        symbol: "../EntityManager"
+    });
+    assert.equal(invalidSymbol.isError, true);
+    assert.match(invalidSymbol.content[0].text, /single identifier/);
+
+    const invalidMaxReferences = await handlers.handleTraceSymbol({
+        path: "/tmp/project",
+        symbol: "EntityManager",
+        maxReferences: "5"
+    });
+    assert.equal(invalidMaxReferences.isError, true);
+    assert.match(invalidMaxReferences.content[0].text, /maxReferences/);
+
+    const invalidLineRange = await handlers.handleTraceSymbol({
+        path: "/tmp/project",
+        symbol: "EntityManager",
+        startLine: 20,
+        endLine: 10
+    });
+    assert.equal(invalidLineRange.isError, true);
+    assert.match(invalidLineRange.content[0].text, /endLine/);
+});
+
+test("trace_symbol passes options and formats evidence sections", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let requestedOptions: any;
+        const context = {
+            traceSymbol: async (codebasePath: string, symbol: string, options: any) => {
+                requestedOptions = { codebasePath, symbol, options };
+                return {
+                    symbol,
+                    codebasePath,
+                    definitions: [{
+                        kind: "definition",
+                        relativePath: "src/game/entities/entityManager.ts",
+                        line: 130,
+                        preview: "export class EntityManager {",
+                        matchedText: "EntityManager"
+                    }],
+                    references: [{
+                        kind: "reference",
+                        relativePath: "src/game/world.ts",
+                        line: 445,
+                        preview: "this._entityManager.addTower(battery);",
+                        matchedText: "_entityManager"
+                    }],
+                    imports: [{
+                        kind: "import",
+                        relativePath: "src/game/world.ts",
+                        line: 23,
+                        preview: "import { EntityManager } from './entities';",
+                        matchedText: "EntityManager"
+                    }],
+                    exports: [],
+                    relatedTests: [],
+                    scannedFiles: 12,
+                    truncated: false,
+                    warnings: []
+                };
+            }
+        } as any;
+        const handlers = new ToolHandlers(context, new SnapshotManager());
+
+        const result = await handlers.handleTraceSymbol({
+            path: project,
+            symbol: "EntityManager",
+            startPath: "src/game/world.ts",
+            startLine: 431,
+            endLine: 493,
+            maxFiles: 50,
+            maxReferences: 5,
+            includeTests: false
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.deepEqual(requestedOptions, {
+            codebasePath: project,
+            symbol: "EntityManager",
+            options: {
+                startPath: "src/game/world.ts",
+                startLine: 431,
+                endLine: 493,
+                maxFiles: 50,
+                maxReferences: 5,
+                includeTests: false
+            }
+        });
+        assert.match(result.content[0].text, /Trace for symbol 'EntityManager'/);
+        assert.match(result.content[0].text, /## Definitions/);
+        assert.match(result.content[0].text, /src\/game\/entities\/entityManager\.ts:130/);
+        assert.match(result.content[0].text, /## References/);
+        assert.match(result.content[0].text, /Matched: _entityManager/);
+        assert.match(result.content[0].text, /## Exports/);
+        assert.match(result.content[0].text, /None found/);
+    });
+});
+
 test("search_code not-indexed response recommends project ignore file", async () => {
     await withTempDir(async (tempRoot) => {
         const project = path.join(tempRoot, "repo");
@@ -341,6 +459,284 @@ test("search_code keeps explicit limit as an override", async () => {
     });
 });
 
+test("search_code validates explicit target role, includeRelated, and trace evidence arguments", async () => {
+    const handlers = createHandlers();
+
+    const invalidRole = await handlers.handleSearchCode({
+        path: "/tmp/project",
+        query: "runSearch",
+        targetRole: "source"
+    });
+    assert.equal(invalidRole.isError, true);
+    assert.match(invalidRole.content[0].text, /targetRole/);
+
+    const invalidIncludeRelated = await handlers.handleSearchCode({
+        path: "/tmp/project",
+        query: "runSearch",
+        includeRelated: "false"
+    });
+    assert.equal(invalidIncludeRelated.isError, true);
+    assert.match(invalidIncludeRelated.content[0].text, /includeRelated/);
+
+    const invalidIncludeTraceEvidence = await handlers.handleSearchCode({
+        path: "/tmp/project",
+        query: "runSearch",
+        includeTraceEvidence: "true"
+    });
+    assert.equal(invalidIncludeTraceEvidence.isError, true);
+    assert.match(invalidIncludeTraceEvidence.content[0].text, /includeTraceEvidence/);
+});
+
+test("search_code passes target role options and formats grouped results", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let requestedOptions: any;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async (
+                _codebasePath: string,
+                _query: string,
+                _topK: number,
+                _threshold: number,
+                _filterExpr: string | undefined,
+                options: any
+            ) => {
+                requestedOptions = options;
+                return [
+                    {
+                        content: "export function runSearch() {}",
+                        relativePath: "src/search.ts",
+                        startLine: 1,
+                        endLine: 1,
+                        language: "typescript",
+                        score: 1,
+                        resultGroup: "implementation",
+                        isPrimary: true,
+                        scoreReasons: ["semantic_match"]
+                    },
+                    {
+                        content: "test('runSearch', () => runSearch())",
+                        relativePath: "src/search.test.ts",
+                        startLine: 1,
+                        endLine: 1,
+                        language: "typescript",
+                        score: 0.9,
+                        resultGroup: "related_tests",
+                        isPrimary: false,
+                        scoreReasons: ["reference_match"]
+                    }
+                ];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 4,
+            totalChunks: 37,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch",
+            targetRole: "test",
+            includeRelated: false
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.deepEqual(requestedOptions, {
+            targetRole: "test",
+            includeRelated: false
+        });
+        assert.match(result.content[0].text, /## Implementation matches/);
+        assert.match(result.content[0].text, /## Related tests/);
+        assert.match(result.content[0].text, /Match signals: semantic_match/);
+        assert.match(result.content[0].text, /Match signals: reference_match/);
+    });
+});
+
+test("search_code suggests trace_symbol follow-up for traceable implementation symbols", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async () => [{
+                content: [
+                    "/**",
+                    " * @delegate EntityManager",
+                    " */",
+                    "addTower(tower: TowerLike): void {",
+                    "    this._entityManager.addTower(tower);",
+                    "}"
+                ].join("\n"),
+                relativePath: "src/game/world.ts",
+                startLine: 431,
+                endLine: 493,
+                language: "typescript",
+                score: 1,
+                resultGroup: "implementation",
+                isPrimary: true,
+                scoreReasons: ["semantic_match"]
+            }]
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 4,
+            totalChunks: 37,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "client creates removes and updates towers monsters bullets and buildings in the world"
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.match(result.content[0].text, /Structure follow-up:/);
+        assert.match(result.content[0].text, /trace_symbol\(\{ path: ".*repo", symbol: "EntityManager", startPath: "src\/game\/world\.ts" \}\)/);
+    });
+});
+
+test("search_code includes compact trace evidence when explicitly requested", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let traceRequest: { codebasePath: string; symbol: string; options: any } | undefined;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async () => [{
+                content: [
+                    "import { EntityManager } from './entities';",
+                    "",
+                    "class World {",
+                    "    private readonly _entityManager: EntityManager;",
+                    "    addTower(tower: TowerLike): void {",
+                    "        this._entityManager.addTower(tower);",
+                    "    }",
+                    "}"
+                ].join("\n"),
+                relativePath: "src/game/world.ts",
+                startLine: 1,
+                endLine: 8,
+                language: "typescript",
+                score: 1,
+                resultGroup: "implementation",
+                isPrimary: true,
+                scoreReasons: ["semantic_match"]
+            }],
+            traceSymbol: async (codebasePath: string, symbol: string, options: any) => {
+                traceRequest = { codebasePath, symbol, options };
+                return {
+                    symbol,
+                    codebasePath,
+                    definitions: [{
+                        kind: "definition",
+                        relativePath: "src/game/entities/entityManager.ts",
+                        line: 130,
+                        preview: "export class EntityManager {}",
+                        matchedText: "EntityManager"
+                    }],
+                    references: [{
+                        kind: "reference",
+                        relativePath: "src/game/world.ts",
+                        line: 445,
+                        preview: "this._entityManager.addTower(tower);",
+                        matchedText: "_entityManager",
+                        enclosingSymbol: "World.addTower",
+                        callTarget: "EntityManager.addTower"
+                    }],
+                    imports: [{
+                        kind: "import",
+                        relativePath: "src/game/world.ts",
+                        line: 1,
+                        preview: "import { EntityManager } from './entities';",
+                        matchedText: "EntityManager",
+                        moduleSpecifier: "./entities",
+                        resolvedPath: "src/game/entities/index.ts"
+                    }],
+                    exports: [{
+                        kind: "export",
+                        relativePath: "src/game/entities/index.ts",
+                        line: 1,
+                        preview: "export { EntityManager } from './entityManager';",
+                        matchedText: "EntityManager",
+                        moduleSpecifier: "./entityManager",
+                        resolvedPath: "src/game/entities/entityManager.ts"
+                    }],
+                    relatedTests: [{
+                        kind: "related_test",
+                        relativePath: "src/game/entities/entityManager.test.ts",
+                        line: 3,
+                        preview: "expect(new EntityManager()).toBeTruthy();",
+                        matchedText: "EntityManager"
+                    }],
+                    scannedFiles: 37,
+                    truncated: false,
+                    warnings: []
+                };
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 4,
+            totalChunks: 37,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "client entity lifecycle",
+            includeTraceEvidence: true
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.deepEqual(traceRequest, {
+            codebasePath: project,
+            symbol: "EntityManager",
+            options: {
+                startPath: "src/game/world.ts",
+                startLine: 1,
+                endLine: 8,
+                maxFiles: 500,
+                maxReferences: 8,
+                includeTests: true
+            }
+        });
+        assert.match(result.content[0].text, /Trace evidence \(EntityManager\):/);
+        assert.match(result.content[0].text, /Evidence chain: entry src\/game\/world\.ts:1-8 => import src\/game\/world\.ts:1 -> src\/game\/entities\/index\.ts => export src\/game\/entities\/index\.ts:1 -> src\/game\/entities\/entityManager\.ts => owner src\/game\/entities\/entityManager\.ts:130 EntityManager => call src\/game\/world\.ts:445 World\.addTower -> EntityManager\.addTower/);
+        assert.match(result.content[0].text, /Owner definitions: src\/game\/entities\/entityManager\.ts:130/);
+        assert.match(result.content[0].text, /Entry references: src\/game\/world\.ts:445/);
+        assert.match(result.content[0].text, /Call chain: src\/game\/world\.ts:445 World\.addTower -> EntityManager\.addTower/);
+        assert.match(result.content[0].text, /Module links: src\/game\/world\.ts:1 -> src\/game\/entities\/index\.ts; src\/game\/entities\/index\.ts:1 -> src\/game\/entities\/entityManager\.ts/);
+        assert.match(result.content[0].text, /Related tests: src\/game\/entities\/entityManager\.test\.ts:3/);
+    });
+});
+
 test("search_code rehydrates context from current source when line range is valid", async () => {
     await withTempDir(async (tempRoot) => {
         const project = path.join(tempRoot, "repo");
@@ -465,8 +861,8 @@ test("search_code preserves distinct locations when rehydrated source windows ov
         assert.match(text, /Location: src\/bridge\.ts:8-10/);
         assert.match(text, /Context source: current source file, lines 1-10; indexed range 4-6/);
         assert.match(text, /Context source: current source file, lines 4-14; indexed range 8-10/);
-        assert.match(text, /Score reason: exact_symbol_definition/);
-        assert.match(text, /Score reason: semantic_match/);
+        assert.match(text, /Match signals: exact_symbol_definition/);
+        assert.match(text, /Match signals: semantic_match/);
         assert.doesNotMatch(text, /stale fog chunk/);
         assert.doesNotMatch(text, /stale territory chunk/);
     });
@@ -805,7 +1201,7 @@ test("search_code does not warn for filename-like query when exact file exists i
         assert.equal(result.isError, undefined);
         assert.match(result.content[0].text, /Found 1 results/);
         assert.match(result.content[0].text, /1\. Source context/);
-        assert.match(result.content[0].text, /Score reason: exact_filename, path_match/);
+        assert.match(result.content[0].text, /Match signals: exact_filename, path_match/);
         assert.doesNotMatch(result.content[0].text, /Exact file not found/);
         assert.doesNotMatch(result.content[0].text, /fallback matches/);
     });

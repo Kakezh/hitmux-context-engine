@@ -1,23 +1,26 @@
 {
   "fixture": "cannonwar-search-quality",
   "codebasePath": "/opt/CannonWar",
-  "generatedAt": "2026-06-13T04:57:41.067Z",
+  "generatedAt": "2026-06-13T12:05:36.277Z",
   "limit": 20,
   "threshold": 0.3,
+  "traceEvidenceEnabled": true,
   "summary": {
     "totalCases": 30,
-    "expectedImplementationTop3": 27,
-    "expectedImplementationTop5": 27,
+    "expectedImplementationTop3": 28,
+    "expectedImplementationTop5": 29,
+    "expectedImplementationTop5OrTraceEvidence": 30,
     "missingExpected": 1,
+    "missingExpectedImplementationTop5CoveredByTraceEvidence": 1,
     "testFirstRate": 0,
     "barrelFirstRate": 0,
-    "relatedTestsPresent": 24
+    "relatedTestsPresent": 30
   },
   "cases": [
     {
       "id": "exact-render-worker-bridge",
       "query": "RenderWorkerBridge render worker bridge class",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/workers/bridge/renderWorkerBridge.ts",
@@ -27,10 +30,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/workers/bridge/renderWorkerBridge.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -62,52 +75,52 @@
         },
         {
           "rank": 5,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "287-298"
+          "path": "src/workers/init.ts",
+          "role": "implementation",
+          "score": 0.01568627543747425,
+          "lineRange": "82-91"
         },
         {
           "rank": 6,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "267-267"
+          "path": "src/systems/territory/territoryRenderer.ts",
+          "role": "implementation",
+          "score": 0.015518797561526299,
+          "lineRange": "67-77"
         },
         {
           "rank": 7,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "108-117"
+          "path": "src/systems/fog/fogRenderer.ts",
+          "role": "implementation",
+          "score": 0.01539919525384903,
+          "lineRange": "89-99"
         },
         {
           "rank": 8,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "245-263"
+          "path": "src/systems/territory/territoryRenderer.ts",
+          "role": "implementation",
+          "score": 0.014656931161880493,
+          "lineRange": "104-112"
         },
         {
           "rank": 9,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "156-174"
+          "path": "src/systems/fog/fogRenderer.ts",
+          "role": "implementation",
+          "score": 0.013842321932315826,
+          "lineRange": "127-138"
         },
         {
           "rank": 10,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "197-216"
+          "path": "src/systems/fog/fogRenderer.ts",
+          "role": "implementation",
+          "score": 0.013575490564107895,
+          "lineRange": "140-177"
         }
       ]
     },
     {
       "id": "nl-render-worker-init",
       "query": "worker initialization detects capabilities and creates render worker bridge",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/workers/init.ts",
@@ -118,90 +131,101 @@
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 3,
+      "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/workers/init.ts",
+          "src/workers/bridge/renderWorkerBridge.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
+          "path": "src/workers/bridge/renderWorkerBridge.ts",
+          "role": "implementation",
+          "score": 0.012545226141810417,
+          "lineRange": "231-251"
+        },
+        {
+          "rank": 2,
+          "path": "src/workers/bridge/renderWorkerBridge.ts",
+          "role": "implementation",
+          "score": 0.015104878693819046,
+          "lineRange": "74-89"
+        },
+        {
+          "rank": 3,
+          "path": "src/workers/capabilityDetect.ts",
+          "role": "implementation",
+          "score": 0.014610995538532734,
+          "lineRange": "9-59"
+        },
+        {
+          "rank": 4,
+          "path": "src/workers/capabilityDetect.ts",
+          "role": "implementation",
+          "score": 0.01432562805712223,
+          "lineRange": "1-7"
+        },
+        {
+          "rank": 5,
+          "path": "src/workers/bridge/renderWorkerBridge.ts",
+          "role": "implementation",
+          "score": 0.014675840735435486,
+          "lineRange": "69-72"
+        },
+        {
+          "rank": 6,
+          "path": "src/workers/bridge/renderWorkerBridge.ts",
+          "role": "implementation",
+          "score": 0.011924982070922852,
+          "lineRange": "83-160"
+        },
+        {
+          "rank": 7,
           "path": "src/systems/fog/fogRenderer.ts",
           "role": "implementation",
           "score": 0.018575850874185562,
           "lineRange": "76-87"
         },
         {
-          "rank": 2,
+          "rank": 8,
           "path": "src/systems/territory/territoryRenderer.ts",
           "role": "implementation",
           "score": 0.018404390662908554,
           "lineRange": "54-65"
         },
         {
-          "rank": 3,
+          "rank": 9,
           "path": "src/workers/init.ts",
           "role": "implementation",
           "score": 0.017900990322232246,
           "lineRange": "18-19"
         },
         {
-          "rank": 4,
+          "rank": 10,
           "path": "src/workers/init.ts",
           "role": "implementation",
           "score": 0.017711598426103592,
           "lineRange": "21-80"
-        },
-        {
-          "rank": 5,
-          "path": "src/systems/territory/territoryRenderer.ts",
-          "role": "implementation",
-          "score": 0.017615385353565216,
-          "lineRange": "67-77"
-        },
-        {
-          "rank": 6,
-          "path": "src/systems/fog/fogRenderer.ts",
-          "role": "implementation",
-          "score": 0.01746031828224659,
-          "lineRange": "89-99"
-        },
-        {
-          "rank": 7,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 0.01689399778842926,
-          "lineRange": "287-298"
-        },
-        {
-          "rank": 8,
-          "path": "src/workers/bridge/renderWorkerBridge.test.ts",
-          "role": "test",
-          "score": 0.01600409671664238,
-          "lineRange": "108-117"
-        },
-        {
-          "rank": 9,
-          "path": "src/workers/init.ts",
-          "role": "implementation",
-          "score": 0.01587701588869095,
-          "lineRange": "82-91"
-        },
-        {
-          "rank": 10,
-          "path": "src/workers/bridge/renderWorkerBridge.ts",
-          "role": "implementation",
-          "score": 0.015104878693819046,
-          "lineRange": "74-89"
         }
       ]
     },
     {
       "id": "exact-save-manager",
       "query": "SaveManager save load serialization",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/systems/save/saveManager.ts",
@@ -211,10 +235,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
-      "relatedTestsPresent": false,
+      "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/systems/save/saveManager.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -227,161 +261,171 @@
           "rank": 2,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
-          "score": 810,
-          "lineRange": "1-97"
-        },
-        {
-          "rank": 3,
-          "path": "src/systems/save/saveManager.ts",
-          "role": "implementation",
           "score": 795,
           "lineRange": "86-185"
         },
         {
-          "rank": 4,
-          "path": "src/systems/save/saveManager.ts",
-          "role": "implementation",
-          "score": 795,
-          "lineRange": "371-428"
-        },
-        {
-          "rank": 5,
-          "path": "src/systems/save/saveManager.ts",
-          "role": "implementation",
-          "score": 795,
-          "lineRange": "578-630"
-        },
-        {
-          "rank": 6,
+          "rank": 3,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
           "score": 0.01769842579960823,
           "lineRange": "773-843"
         },
         {
-          "rank": 7,
-          "path": "src/systems/save/saveManager.ts",
-          "role": "implementation",
-          "score": 0.00917431153357029,
-          "lineRange": "472-530"
-        },
-        {
-          "rank": 8,
+          "rank": 4,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
           "score": 0.00909090880304575,
           "lineRange": "308-375"
         },
         {
-          "rank": 9,
-          "path": "src/types/systems.ts",
+          "rank": 5,
+          "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
-          "score": 250,
-          "lineRange": "9-22"
+          "score": 810,
+          "lineRange": "1-97"
+        },
+        {
+          "rank": 6,
+          "path": "src/systems/save/saveManager.ts",
+          "role": "implementation",
+          "score": 795,
+          "lineRange": "371-428"
+        },
+        {
+          "rank": 7,
+          "path": "src/systems/save/saveManager.ts",
+          "role": "implementation",
+          "score": 795,
+          "lineRange": "578-630"
+        },
+        {
+          "rank": 8,
+          "path": "src/systems/save/saveManager.ts",
+          "role": "implementation",
+          "score": 0.00917431153357029,
+          "lineRange": "472-530"
+        },
+        {
+          "rank": 9,
+          "path": "src/types/game.ts",
+          "role": "implementation",
+          "score": 0.01828351989388466,
+          "lineRange": "106-113"
         },
         {
           "rank": 10,
-          "path": "src/ui/interfaces/battle/index.ts",
-          "role": "entrypoint",
-          "score": 250,
-          "lineRange": "37-98"
+          "path": "src/buildings/variants/monsterSpawner.ts",
+          "role": "implementation",
+          "score": 0.018112100660800934,
+          "lineRange": "312-319"
         }
       ]
     },
     {
       "id": "nl-local-save-restore",
       "query": "local game save restore world towers monsters buildings money",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 2,
+      "firstExpectedRank": 3,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
-      "relatedTestsPresent": false,
+      "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/systems/save/saveManager.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
+          "path": "src/ui/interfaces/monstersInterface.ts",
+          "role": "implementation",
+          "score": 0.0078125,
+          "lineRange": "45-45"
+        },
+        {
+          "rank": 2,
           "path": "src/types/game.ts",
           "role": "implementation",
           "score": 0.019801979884505272,
           "lineRange": "106-113"
         },
         {
-          "rank": 2,
+          "rank": 3,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
           "score": 0.01848066784441471,
           "lineRange": "308-375"
         },
         {
-          "rank": 3,
+          "rank": 4,
           "path": "src/ui/interfaces/battle/cheatMode.ts",
           "role": "implementation",
           "score": 0.01669873483479023,
           "lineRange": "90-111"
         },
         {
-          "rank": 4,
+          "rank": 5,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
           "score": 0.016194596886634827,
           "lineRange": "578-630"
         },
         {
-          "rank": 5,
+          "rank": 6,
           "path": "src/game/world.ts",
           "role": "implementation",
           "score": 0.01547619141638279,
           "lineRange": "495-553"
         },
         {
-          "rank": 6,
+          "rank": 7,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
           "score": 0.015396368689835072,
           "lineRange": "1-97"
         },
         {
-          "rank": 7,
+          "rank": 8,
           "path": "src/game/world.ts",
           "role": "implementation",
           "score": 0.014462600462138653,
           "lineRange": "555-614"
         },
         {
-          "rank": 8,
+          "rank": 9,
           "path": "src/buildings/variants/monsterSpawner.ts",
           "role": "implementation",
           "score": 0.012710505165159702,
           "lineRange": "321-333"
         },
         {
-          "rank": 9,
+          "rank": 10,
           "path": "src/systems/save/saveManager.ts",
           "role": "implementation",
           "score": 0.009708737954497337,
           "lineRange": "901-971"
-        },
-        {
-          "rank": 10,
-          "path": "src/network/validation/clientValidator.ts",
-          "role": "implementation",
-          "score": 0.009615384973585606,
-          "lineRange": "65-75"
         }
       ]
     },
     {
       "id": "exact-interpolation-system",
       "query": "InterpolationSystem network rendering interpolation snapshots",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/network/rendering/interpolation.ts",
@@ -391,10 +435,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/rendering/interpolation.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -405,73 +459,73 @@
         },
         {
           "rank": 2,
-          "path": "src/network/rendering/index.ts",
-          "role": "entrypoint",
-          "score": 265,
-          "lineRange": "19-23"
+          "path": "src/network/rendering/interpolation.ts",
+          "role": "implementation",
+          "score": 0.01733630895614624,
+          "lineRange": "27-40"
         },
         {
           "rank": 3,
           "path": "src/network/rendering/interpolation.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "209-217"
+          "score": 0.016541864722967148,
+          "lineRange": "1-17"
         },
         {
           "rank": 4,
-          "path": "src/network/index.ts",
-          "role": "entrypoint",
-          "score": 265,
-          "lineRange": "44-56"
+          "path": "src/network/rendering/interpolation.ts",
+          "role": "implementation",
+          "score": 0.015101411379873753,
+          "lineRange": "19-25"
         },
         {
           "rank": 5,
-          "path": "src/network/rendering/networkWorldAdapter.ts",
+          "path": "src/network/rendering/interpolation.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "767-772"
+          "score": 0.01429227739572525,
+          "lineRange": "109-157"
         },
         {
           "rank": 6,
-          "path": "src/network/rendering/interpolation.ts",
-          "role": "implementation",
-          "score": 265,
-          "lineRange": "199-207"
+          "path": "src/game/index.ts",
+          "role": "barrel",
+          "score": 0.012909920886158943,
+          "lineRange": "31-31"
         },
         {
           "rank": 7,
-          "path": "src/network/rendering/interpolation.ts",
+          "path": "src/network/rendering/renderProxy.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "196-197"
+          "score": 0.012699564918875694,
+          "lineRange": "271-274"
         },
         {
           "rank": 8,
-          "path": "src/network/rendering/renderProxy.ts",
+          "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "96-168"
+          "score": 0.01266634650528431,
+          "lineRange": "299-307"
         },
         {
           "rank": 9,
-          "path": "src/network/rendering/renderProxy.ts",
-          "role": "implementation",
-          "score": 265,
-          "lineRange": "325-393"
+          "path": "src/buildings/rendering/index.ts",
+          "role": "entrypoint",
+          "score": 0.012539676390588284,
+          "lineRange": "1-4"
         },
         {
           "rank": 10,
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "140-156"
+          "score": 0.012517603114247322,
+          "lineRange": "398-430"
         }
       ]
     },
     {
       "id": "nl-entity-snapshot-interpolation",
       "query": "client renders server entity snapshots with interpolation between network ticks",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "partial",
       "expected": [
         {
           "path": "src/network/rendering/interpolation.ts",
@@ -482,48 +536,59 @@
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 1,
-      "expectedImplementationTop3": true,
+      "firstExpectedRank": 4,
+      "expectedImplementationTop3": false,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/rendering/interpolation.ts",
+          "src/network/rendering/networkWorldAdapter.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.00800000037997961,
+          "lineRange": "666-669"
+        },
+        {
+          "rank": 2,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.008064515888690948,
+          "lineRange": "109-111"
+        },
+        {
+          "rank": 3,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.007462686393409967,
+          "lineRange": "195-204"
+        },
+        {
+          "rank": 4,
           "path": "src/network/rendering/interpolation.ts",
           "role": "implementation",
           "score": 0.0197049118578434,
           "lineRange": "1-17"
         },
         {
-          "rank": 2,
-          "path": "src/network/rendering/interpolation.test.ts",
-          "role": "test",
-          "score": 0.019149716943502426,
-          "lineRange": "51-59"
-        },
-        {
-          "rank": 3,
-          "path": "src/network/rendering/interpolation.test.ts",
-          "role": "test",
-          "score": 0.018187832087278366,
-          "lineRange": "72-80"
-        },
-        {
-          "rank": 4,
+          "rank": 5,
           "path": "src/network/rendering/interpolation.ts",
           "role": "implementation",
           "score": 0.01803118921816349,
           "lineRange": "109-157"
-        },
-        {
-          "rank": 5,
-          "path": "src/network/rendering/interpolation.test.ts",
-          "role": "test",
-          "score": 0.017892803996801376,
-          "lineRange": "93-102"
         },
         {
           "rank": 6,
@@ -548,24 +613,24 @@
         },
         {
           "rank": 9,
-          "path": "src/network/rendering/interpolation.test.ts",
-          "role": "test",
-          "score": 0.015114771202206612,
-          "lineRange": "5-11"
-        },
-        {
-          "rank": 10,
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
           "score": 0.0146367521956563,
           "lineRange": "467-499"
+        },
+        {
+          "rank": 10,
+          "path": "src/network/rendering/renderProxy.ts",
+          "role": "implementation",
+          "score": 0.014612811617553234,
+          "lineRange": "311-314"
         }
       ]
     },
     {
       "id": "exact-network-event-emitter",
       "query": "NetworkEventEmitter network event listener dispatch",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/network/eventEmitter.ts",
@@ -575,10 +640,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/eventEmitter.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -589,73 +664,73 @@
         },
         {
           "rank": 2,
-          "path": "src/network/index.ts",
-          "role": "barrel",
-          "score": 250,
-          "lineRange": "38-38"
+          "path": "src/network/reconnectionManager.ts",
+          "role": "implementation",
+          "score": 0.014725785702466965,
+          "lineRange": "132-158"
         },
         {
           "rank": 3,
           "path": "src/network/networkClient.ts",
           "role": "implementation",
-          "score": 250,
-          "lineRange": "93-189"
+          "score": 0.014601651579141617,
+          "lineRange": "492-495"
         },
         {
           "rank": 4,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "5-14"
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.013753662817180157,
+          "lineRange": "666-669"
         },
         {
           "rank": 5,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "53-63"
+          "path": "src/network/index.ts",
+          "role": "barrel",
+          "score": 0.013419216498732567,
+          "lineRange": "37-37"
         },
         {
           "rank": 6,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "30-39"
+          "path": "src/types/systems.ts",
+          "role": "implementation",
+          "score": 0.012348485179245472,
+          "lineRange": "133-139"
         },
         {
           "rank": 7,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "146-157"
+          "path": "src/types/systems.ts",
+          "role": "implementation",
+          "score": 0.012121656909584999,
+          "lineRange": "147-147"
         },
         {
           "rank": 8,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "110-125"
+          "path": "src/workers/core/renderWorker.ts",
+          "role": "implementation",
+          "score": 0.012091503478586674,
+          "lineRange": "26-26"
         },
         {
           "rank": 9,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "76-92"
+          "path": "src/network/index.ts",
+          "role": "barrel",
+          "score": 0.008474576286971569,
+          "lineRange": "6-6"
         },
         {
           "rank": 10,
-          "path": "src/network/eventEmitter.test.ts",
-          "role": "test",
-          "score": 50,
-          "lineRange": "17-17"
+          "path": "src/network/rendering/networkWorldAdapter.ts",
+          "role": "implementation",
+          "score": 0.008333333767950535,
+          "lineRange": "212-212"
         }
       ]
     },
     {
       "id": "nl-network-reconnection",
       "query": "network client reconnect handles room connection and event callbacks",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/network/networkClient.ts",
@@ -669,73 +744,84 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/networkClient.ts",
+          "src/network/reconnectionManager.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.00826446246355772,
+          "lineRange": "142-172"
+        },
+        {
+          "rank": 2,
           "path": "src/network/networkClient.ts",
           "role": "implementation",
           "score": 0.01828351989388466,
           "lineRange": "401-421"
         },
         {
-          "rank": 2,
-          "path": "src/network/networkClient.test.ts",
-          "role": "test",
-          "score": 0.017637917771935463,
-          "lineRange": "453-464"
-        },
-        {
           "rank": 3,
-          "path": "src/network/config.ts",
+          "path": "src/network/networkClient.ts",
           "role": "implementation",
-          "score": 0.01753457821905613,
-          "lineRange": "1-15"
+          "score": 0.009615384973585606,
+          "lineRange": "642-652"
         },
         {
           "rank": 4,
           "path": "src/network/networkClient.ts",
           "role": "implementation",
-          "score": 0.01684543490409851,
-          "lineRange": "588-604"
+          "score": 0.009345794096589088,
+          "lineRange": "612-640"
         },
         {
           "rank": 5,
-          "path": "src/network/networkClient.test.ts",
-          "role": "test",
-          "score": 0.01537843607366085,
-          "lineRange": "439-439"
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.008196720853447914,
+          "lineRange": "174-193"
         },
         {
           "rank": 6,
-          "path": "src/network/reconnectionManager.ts",
+          "path": "src/network/networkClient.ts",
           "role": "implementation",
-          "score": 0.015068260952830315,
-          "lineRange": "132-158"
+          "score": 0.007462686393409967,
+          "lineRange": "423-459"
         },
         {
           "rank": 7,
-          "path": "src/network/networkClient.test.ts",
-          "role": "test",
-          "score": 0.014652211219072342,
-          "lineRange": "185-217"
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.008695651777088642,
+          "lineRange": "654-663"
         },
         {
           "rank": 8,
-          "path": "src/network/reconnectionManager.ts",
+          "path": "src/network/networkClient.ts",
           "role": "implementation",
-          "score": 0.01418128702789545,
-          "lineRange": "171-210"
+          "score": 0.007751937955617905,
+          "lineRange": "666-669"
         },
         {
           "rank": 9,
-          "path": "src/network/reconnectionManager.test.ts",
-          "role": "test",
-          "score": 0.01290806196630001,
-          "lineRange": "92-97"
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.01684543490409851,
+          "lineRange": "588-604"
         },
         {
           "rank": 10,
@@ -749,7 +835,7 @@
     {
       "id": "exact-manual-cannon-panel",
       "query": "ManualCannonPanel manual cannon targeting UI panel",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
@@ -759,10 +845,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/ui/interfaces/battle/manualCannonPanel.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -775,22 +871,22 @@
           "rank": 2,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.016632160171866417,
-          "lineRange": "112-130"
+          "score": 0.008547008968889713,
+          "lineRange": "271-288"
         },
         {
           "rank": 3,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.01452390942722559,
-          "lineRange": "252-269"
+          "score": 0.008064515888690948,
+          "lineRange": "167-228"
         },
         {
           "rank": 4,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.008547008968889713,
-          "lineRange": "271-288"
+          "score": 0.01452390942722559,
+          "lineRange": "252-269"
         },
         {
           "rank": 5,
@@ -803,15 +899,15 @@
           "rank": 6,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.008064515888690948,
-          "lineRange": "167-228"
+          "score": 0.007299270015209913,
+          "lineRange": "99-100"
         },
         {
           "rank": 7,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.007633587811142206,
-          "lineRange": "304-366"
+          "score": 0.00699300691485405,
+          "lineRange": "103-104"
         },
         {
           "rank": 8,
@@ -824,22 +920,22 @@
           "rank": 9,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.007352941203862429,
-          "lineRange": "153-158"
+          "score": 0.016632160171866417,
+          "lineRange": "112-130"
         },
         {
           "rank": 10,
           "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.007299270015209913,
-          "lineRange": "99-100"
+          "score": 0.007633587811142206,
+          "lineRange": "304-366"
         }
       ]
     },
     {
       "id": "nl-manual-cannon-validation",
       "query": "manual cannon fire validation range ammo owned tower auto target radius",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "shared/validation/towerValidation.ts",
@@ -849,10 +945,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "shared/validation/towerValidation.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -863,73 +969,73 @@
         },
         {
           "rank": 2,
-          "path": "src/towers/config/manualCannonTower.ts",
-          "role": "implementation",
-          "score": 0.018187832087278366,
-          "lineRange": "10-22"
-        },
-        {
-          "rank": 3,
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
           "score": 0.01816239394247532,
           "lineRange": "325-373"
         },
         {
-          "rank": 4,
-          "path": "server/src/validation/inputValidator.ts",
+          "rank": 3,
+          "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
           "role": "implementation",
-          "score": 0.017345793545246124,
-          "lineRange": "430-450"
+          "score": 0.00800000037997961,
+          "lineRange": "12-31"
+        },
+        {
+          "rank": 4,
+          "path": "src/towers/variants/manualCannon.ts",
+          "role": "implementation",
+          "score": 0.015811730176210403,
+          "lineRange": "17-45"
         },
         {
           "rank": 5,
-          "path": "shared/validation/towerValidation.test.ts",
-          "role": "test",
-          "score": 0.017042607069015503,
-          "lineRange": "310-335"
+          "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
+          "role": "implementation",
+          "score": 0.007194244768470526,
+          "lineRange": "55-110"
         },
         {
           "rank": 6,
-          "path": "src/network/validation/clientValidator.test.ts",
-          "role": "test",
-          "score": 0.01663699746131897,
-          "lineRange": "144-158"
+          "path": "src/ui/interfaces/battle/manualCannonPanel.ts",
+          "role": "implementation",
+          "score": 0.007042253389954567,
+          "lineRange": "167-228"
         },
         {
           "rank": 7,
-          "path": "shared/validation/towerValidation.test.ts",
-          "role": "test",
-          "score": 0.016558052971959114,
-          "lineRange": "337-339"
+          "path": "src/towers/base/towerManualCannon.ts",
+          "role": "implementation",
+          "score": 0.0069444444961845875,
+          "lineRange": "235-322"
         },
         {
           "rank": 8,
-          "path": "server/src/validation/inputValidator.ts",
+          "path": "src/towers/variants/manualCannon.ts",
           "role": "implementation",
-          "score": 0.016368355602025986,
-          "lineRange": "397-428"
+          "score": 0.007874015718698502,
+          "lineRange": "47-52"
         },
         {
           "rank": 9,
-          "path": "shared/validation/towerValidation.test.ts",
-          "role": "test",
-          "score": 0.016287077218294144,
-          "lineRange": "387-392"
+          "path": "src/towers/base/towerManualCannon.ts",
+          "role": "implementation",
+          "score": 0.007936508394777775,
+          "lineRange": "177-183"
         },
         {
           "rank": 10,
-          "path": "shared/validation/towerValidation.test.ts",
-          "role": "test",
-          "score": 0.016102757304906845,
-          "lineRange": "375-380"
+          "path": "src/towers/base/towerManualCannon.ts",
+          "role": "implementation",
+          "score": 0.007575757801532745,
+          "lineRange": "149-162"
         }
       ]
     },
     {
       "id": "exact-game-room",
       "query": "GameRoom server room game loop messages",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/rooms/GameRoom.ts",
@@ -939,10 +1045,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
-      "relatedTestsPresent": false,
+      "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/rooms/GameRoom.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -956,70 +1072,70 @@
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
           "score": 825,
-          "lineRange": "516-614"
+          "lineRange": "1758-1828"
         },
         {
           "rank": 3,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "175-249"
+          "score": 725,
+          "lineRange": "1226-1312"
         },
         {
           "rank": 4,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "315-393"
+          "score": 725,
+          "lineRange": "1690-1766"
         },
         {
           "rank": 5,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "384-453"
+          "score": 725,
+          "lineRange": "1883-1965"
         },
         {
           "rank": 6,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "449-521"
+          "score": 725,
+          "lineRange": "616-694"
         },
         {
           "rank": 7,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "1758-1828"
+          "score": 725,
+          "lineRange": "836-896"
         },
         {
           "rank": 8,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "1959-2039"
+          "score": 725,
+          "lineRange": "892-941"
         },
         {
           "rank": 9,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "2036-2130"
+          "score": 725,
+          "lineRange": "985-1047"
         },
         {
           "rank": 10,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 825,
-          "lineRange": "2124-2210"
+          "score": 725,
+          "lineRange": "1040-1119"
         }
       ]
     },
     {
       "id": "nl-server-game-loop",
       "query": "server room advances game state broadcasts snapshots and handles player input",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/rooms/GameRoom.ts",
@@ -1029,87 +1145,97 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/rooms/GameRoom.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 0.017316341400146484,
-          "lineRange": "384-453"
+          "score": 0.00909090880304575,
+          "lineRange": "96-185"
         },
         {
           "rank": 2,
-          "path": "src/network/networkClient.ts",
-          "role": "implementation",
-          "score": 0.01689399778842926,
-          "lineRange": "488-565"
-        },
-        {
-          "rank": 3,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
           "score": 0.01589995063841343,
           "lineRange": "1-73"
         },
         {
-          "rank": 4,
-          "path": "src/network/networkClient.ts",
+          "rank": 3,
+          "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
-          "score": 0.015495991334319115,
-          "lineRange": "263-272"
+          "score": 0.011877907440066338,
+          "lineRange": "2124-2210"
+        },
+        {
+          "rank": 4,
+          "path": "server/src/rooms/GameRoom.ts",
+          "role": "implementation",
+          "score": 0.017316341400146484,
+          "lineRange": "384-453"
         },
         {
           "rank": 5,
-          "path": "server/src/rooms/GameRoom.test.ts",
-          "role": "test",
-          "score": 0.015369890257716179,
-          "lineRange": "71-92"
-        },
-        {
-          "rank": 6,
-          "path": "src/network/networkClient.test.ts",
-          "role": "test",
-          "score": 0.015016872435808182,
-          "lineRange": "348-394"
-        },
-        {
-          "rank": 7,
-          "path": "server/src/rooms/LobbyRoom.test.ts",
-          "role": "test",
-          "score": 0.014360962435603142,
-          "lineRange": "131-153"
-        },
-        {
-          "rank": 8,
-          "path": "src/ui/interfaces/multiplayer/waitingRoomInterface.ts",
-          "role": "implementation",
-          "score": 0.014147688634693623,
-          "lineRange": "116-158"
-        },
-        {
-          "rank": 9,
           "path": "server/src/rooms/GameRoom.ts",
           "role": "implementation",
           "score": 0.013882353901863098,
           "lineRange": "516-614"
         },
         {
-          "rank": 10,
+          "rank": 6,
+          "path": "server/src/rooms/GameRoom.ts",
+          "role": "implementation",
+          "score": 0.012779682874679565,
+          "lineRange": "2036-2130"
+        },
+        {
+          "rank": 7,
+          "path": "server/src/rooms/GameRoom.ts",
+          "role": "implementation",
+          "score": 0.007874015718698502,
+          "lineRange": "315-393"
+        },
+        {
+          "rank": 8,
           "path": "src/network/networkClient.ts",
           "role": "implementation",
-          "score": 0.013094330206513405,
-          "lineRange": "461-486"
+          "score": 0.01689399778842926,
+          "lineRange": "488-565"
+        },
+        {
+          "rank": 9,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.015495991334319115,
+          "lineRange": "263-272"
+        },
+        {
+          "rank": 10,
+          "path": "src/ui/interfaces/multiplayer/waitingRoomInterface.ts",
+          "role": "implementation",
+          "score": 0.014147688634693623,
+          "lineRange": "116-158"
         }
       ]
     },
     {
       "id": "exact-spatial-query-system",
       "query": "SpatialQuerySystem find nearby towers monsters buildings bullets",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/game/spatial/spatialQuerySystem.ts",
@@ -1119,10 +1245,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
-      "relatedTestsPresent": false,
+      "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/game/spatial/spatialQuerySystem.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1147,59 +1283,59 @@
         },
         {
           "rank": 4,
-          "path": "src/game/world.ts",
+          "path": "server/src/systems/combat/monsterMeleeSystem.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "1020-1095"
+          "score": 0.01642531529068947,
+          "lineRange": "150-150"
         },
         {
           "rank": 5,
-          "path": "src/game/world.ts",
+          "path": "src/network/validation/clientValidator.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "953-1026"
+          "score": 0.01684284582734108,
+          "lineRange": "114-115"
         },
         {
           "rank": 6,
-          "path": "src/game/world.ts",
+          "path": "src/network/validation/clientValidator.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "133-170"
+          "score": 0.0156988725066185,
+          "lineRange": "200-201"
         },
         {
           "rank": 7,
-          "path": "src/game/world.ts",
+          "path": "src/systems/territory/territory.ts",
           "role": "implementation",
-          "score": 235,
-          "lineRange": "1-80"
+          "score": 0.015689866617321968,
+          "lineRange": "153-155"
         },
         {
           "rank": 8,
-          "path": "src/game/spatial/index.ts",
-          "role": "barrel",
-          "score": 220,
-          "lineRange": "5-5"
+          "path": "src/network/validation/clientValidator.ts",
+          "role": "implementation",
+          "score": 0.015423024073243141,
+          "lineRange": "202-208"
         },
         {
           "rank": 9,
-          "path": "src/game/index.ts",
-          "role": "barrel",
-          "score": 220,
-          "lineRange": "7-8"
+          "path": "server/src/systems/combat/combatSystem.ts",
+          "role": "implementation",
+          "score": 0.01535845547914505,
+          "lineRange": "153-163"
         },
         {
           "rank": 10,
-          "path": "src/game/entities/entityManager.ts",
+          "path": "src/towers/base/towerManualCannon.ts",
           "role": "implementation",
-          "score": 220,
-          "lineRange": "148-151"
+          "score": 0.013911006972193718,
+          "lineRange": "259-305"
         }
       ]
     },
     {
       "id": "nl-client-spatial-grid",
       "query": "client spatial hash grid collision nearby entity lookup",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/core/physics/spatialHashGrid.ts",
@@ -1210,13 +1346,24 @@
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 2,
+      "firstExpectedRank": 3,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/core/physics/spatialHashGrid.ts",
+          "src/game/spatial/spatialQuerySystem.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1227,73 +1374,73 @@
         },
         {
           "rank": 2,
+          "path": "server/src/systems/spatial/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.009523809887468815,
+          "lineRange": "23-118"
+        },
+        {
+          "rank": 3,
+          "path": "src/core/physics/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.008849557489156723,
+          "lineRange": "12-94"
+        },
+        {
+          "rank": 4,
+          "path": "src/core/physics/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.0078125,
+          "lineRange": "139-139"
+        },
+        {
+          "rank": 5,
+          "path": "server/src/systems/spatial/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.007751937955617905,
+          "lineRange": "157-157"
+        },
+        {
+          "rank": 6,
+          "path": "server/src/systems/spatial/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.007692307699471712,
+          "lineRange": "186-186"
+        },
+        {
+          "rank": 7,
+          "path": "src/core/physics/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.007194244768470526,
+          "lineRange": "177-187"
+        },
+        {
+          "rank": 8,
+          "path": "server/src/systems/spatial/spatialHashGrid.ts",
+          "role": "implementation",
+          "score": 0.0071428571827709675,
+          "lineRange": "226-236"
+        },
+        {
+          "rank": 9,
           "path": "src/game/spatial/spatialQuerySystem.ts",
           "role": "implementation",
           "score": 0.01706167869269848,
           "lineRange": "178-186"
         },
         {
-          "rank": 3,
+          "rank": 10,
           "path": "src/game/spatial/spatialQuerySystem.ts",
           "role": "implementation",
           "score": 0.01691465452313423,
           "lineRange": "158-166"
-        },
-        {
-          "rank": 4,
-          "path": "src/game/entities/entityManager.ts",
-          "role": "implementation",
-          "score": 0.016326531767845154,
-          "lineRange": "220-230"
-        },
-        {
-          "rank": 5,
-          "path": "server/src/systems/combat/towerAttack.ts",
-          "role": "implementation",
-          "score": 0.01610255055129528,
-          "lineRange": "77-82"
-        },
-        {
-          "rank": 6,
-          "path": "server/src/systems/spatial/index.ts",
-          "role": "entrypoint",
-          "score": 0.015783343464136124,
-          "lineRange": "1-4"
-        },
-        {
-          "rank": 7,
-          "path": "server/src/systems/spatial/spatialHashGrid.test.ts",
-          "role": "test",
-          "score": 0.015763547271490097,
-          "lineRange": "37-46"
-        },
-        {
-          "rank": 8,
-          "path": "server/src/systems/combat/bulletManager.ts",
-          "role": "implementation",
-          "score": 0.01576307602226734,
-          "lineRange": "71-76"
-        },
-        {
-          "rank": 9,
-          "path": "server/src/systems/combat/bulletManager.ts",
-          "role": "implementation",
-          "score": 0.015516224317252636,
-          "lineRange": "62-69"
-        },
-        {
-          "rank": 10,
-          "path": "server/src/systems/combat/combatSystem.ts",
-          "role": "implementation",
-          "score": 0.015323891304433346,
-          "lineRange": "21-28"
         }
       ]
     },
     {
       "id": "exact-tower-validation",
       "query": "towerValidation validateBuildTowerBasic validateUpgradeTower validateSellTower",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "shared/validation/towerValidation.ts",
@@ -1303,52 +1450,62 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "shared/validation/towerValidation.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
-          "path": "shared/validation/towerValidation.ts",
-          "role": "implementation",
-          "score": 1190,
-          "lineRange": "243-275"
-        },
-        {
-          "rank": 2,
-          "path": "shared/validation/towerValidation.ts",
-          "role": "implementation",
-          "score": 1190,
-          "lineRange": "180-241"
-        },
-        {
-          "rank": 3,
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
           "score": 1140,
           "lineRange": "142-178"
         },
         {
-          "rank": 4,
+          "rank": 2,
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
-          "score": 730,
-          "lineRange": "48-60"
+          "score": 1190,
+          "lineRange": "243-275"
         },
         {
-          "rank": 5,
+          "rank": 3,
+          "path": "shared/validation/towerValidation.ts",
+          "role": "implementation",
+          "score": 1190,
+          "lineRange": "180-241"
+        },
+        {
+          "rank": 4,
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
           "score": 730,
           "lineRange": "277-323"
         },
         {
-          "rank": 6,
+          "rank": 5,
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
           "score": 730,
           "lineRange": "325-373"
+        },
+        {
+          "rank": 6,
+          "path": "shared/validation/towerValidation.ts",
+          "role": "implementation",
+          "score": 730,
+          "lineRange": "48-60"
         },
         {
           "rank": 7,
@@ -1362,14 +1519,14 @@
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
           "score": 680,
-          "lineRange": "22-28"
+          "lineRange": "87-92"
         },
         {
           "rank": 9,
           "path": "shared/validation/towerValidation.ts",
           "role": "implementation",
           "score": 680,
-          "lineRange": "30-37"
+          "lineRange": "118-140"
         },
         {
           "rank": 10,
@@ -1383,7 +1540,7 @@
     {
       "id": "exact-spawn-monster-validation",
       "query": "validateSpawnMonster monster spawn validation cooldown target player",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "shared/validation/monsterValidation.ts",
@@ -1393,10 +1550,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "shared/validation/monsterValidation.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1407,73 +1574,73 @@
         },
         {
           "rank": 2,
-          "path": "shared/validation/monsterValidation.test.ts",
-          "role": "test",
-          "score": 425,
-          "lineRange": "83-83"
+          "path": "shared/validation/monsterValidation.ts",
+          "role": "implementation",
+          "score": 0.015763668343424797,
+          "lineRange": "24-34"
         },
         {
           "rank": 3,
-          "path": "shared/validation/monsterValidation.test.ts",
-          "role": "test",
-          "score": 425,
-          "lineRange": "111-111"
+          "path": "shared/validation/monsterValidation.ts",
+          "role": "implementation",
+          "score": 0.007246376946568489,
+          "lineRange": "14-22"
         },
         {
           "rank": 4,
-          "path": "shared/validation/monsterValidation.test.ts",
-          "role": "test",
-          "score": 425,
-          "lineRange": "103-103"
+          "path": "src/buildings/variants/monsterSpawner.ts",
+          "role": "implementation",
+          "score": 0.017324134707450867,
+          "lineRange": "133-183"
         },
         {
           "rank": 5,
-          "path": "src/network/validation/clientValidator.ts",
+          "path": "src/buildings/spawnerConfig.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "149-188"
+          "score": 0.01600102335214615,
+          "lineRange": "11-25"
         },
         {
           "rank": 6,
-          "path": "server/src/validation/inputValidator.ts",
+          "path": "src/ui/interfaces/battle/spawnerPanel.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "355-395"
+          "score": 0.0147569440305233,
+          "lineRange": "235-249"
         },
         {
           "rank": 7,
-          "path": "shared/validation/index.ts",
-          "role": "entrypoint",
-          "score": 265,
-          "lineRange": "32-37"
+          "path": "src/buildings/variants/monsterSpawner.ts",
+          "role": "implementation",
+          "score": 0.014690227806568146,
+          "lineRange": "95-116"
         },
         {
           "rank": 8,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "src/buildings/variants/monsterSpawner.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "2395-2472"
+          "score": 0.014039408415555954,
+          "lineRange": "125-131"
         },
         {
           "rank": 9,
-          "path": "server/src/shared/validation/index.ts",
-          "role": "entrypoint",
-          "score": 265,
-          "lineRange": "1-27"
+          "path": "server/src/schema/BuildingState.ts",
+          "role": "implementation",
+          "score": 0.01357195433229208,
+          "lineRange": "56-67"
         },
         {
           "rank": 10,
-          "path": "shared/validation/monsterValidation.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "153-162"
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.013543810695409775,
+          "lineRange": "337-344"
         }
       ]
     },
     {
       "id": "exact-server-input-validator",
       "query": "InputValidator server validate player tower spawner messages",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/validation/inputValidator.ts",
@@ -1483,10 +1650,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/validation/inputValidator.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1532,38 +1709,38 @@
         },
         {
           "rank": 7,
-          "path": "server/src/validation/inputValidator.test.ts",
-          "role": "test",
-          "score": 620,
-          "lineRange": "31-64"
+          "path": "shared/types/messages.ts",
+          "role": "implementation",
+          "score": 0.009900989942252636,
+          "lineRange": "1-46"
         },
         {
           "rank": 8,
-          "path": "server/src/validation/inputValidator.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "165-211"
+          "path": "shared/types/messages.ts",
+          "role": "implementation",
+          "score": 0.0146226417273283,
+          "lineRange": "119-129"
         },
         {
           "rank": 9,
-          "path": "server/src/validation/inputValidator.test.ts",
-          "role": "test",
-          "score": 260,
-          "lineRange": "92-113"
+          "path": "shared/types/messages.ts",
+          "role": "implementation",
+          "score": 0.009433962404727936,
+          "lineRange": "50-95"
         },
         {
           "rank": 10,
-          "path": "server/src/validation/inputValidator.test.ts",
-          "role": "test",
-          "score": 0.008333333767950535,
-          "lineRange": "116-141"
+          "path": "shared/types/messages.ts",
+          "role": "implementation",
+          "score": 0.008928571827709675,
+          "lineRange": "183-193"
         }
       ]
     },
     {
       "id": "exact-server-bullet-manager",
       "query": "BulletManager server combat bullets update collisions",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/combat/bulletManager.ts",
@@ -1573,10 +1750,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/combat/bulletManager.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1589,14 +1776,14 @@
           "rank": 2,
           "path": "server/src/systems/combat/bulletManager.ts",
           "role": "implementation",
-          "score": 0.015563732013106346,
+          "score": 0.015495991334319115,
           "lineRange": "212-247"
         },
         {
           "rank": 3,
           "path": "server/src/systems/combat/bulletManager.ts",
           "role": "implementation",
-          "score": 0.008403361774981022,
+          "score": 0.00826446246355772,
           "lineRange": "172-210"
         },
         {
@@ -1615,45 +1802,45 @@
         },
         {
           "rank": 6,
-          "path": "server/src/systems/combat/bulletManager.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "190-203"
+          "path": "server/src/systems/combat/combatSystem.ts",
+          "role": "implementation",
+          "score": 0.01783749833703041,
+          "lineRange": "106-151"
         },
         {
           "rank": 7,
-          "path": "server/src/systems/combat/bulletManager.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "152-166"
+          "path": "server/src/systems/combat/combatSystem.ts",
+          "role": "implementation",
+          "score": 0.015507519245147705,
+          "lineRange": "38-45"
         },
         {
           "rank": 8,
-          "path": "server/src/systems/combat/bulletManager.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "225-242"
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.014287885278463364,
+          "lineRange": "527-530"
         },
         {
           "rank": 9,
-          "path": "server/src/systems/combat/bulletManager.test.ts",
-          "role": "test",
-          "score": 275,
-          "lineRange": "267-281"
+          "path": "server/src/systems/combat/towerAttack.ts",
+          "role": "implementation",
+          "score": 0.012946875765919685,
+          "lineRange": "224-224"
         },
         {
           "rank": 10,
-          "path": "server/src/systems/combat/bulletManager.test.ts",
-          "role": "test",
-          "score": 260,
-          "lineRange": "169-169"
+          "path": "src/monsters/base/monsterShooter.ts",
+          "role": "implementation",
+          "score": 0.01283733919262886,
+          "lineRange": "160-170"
         }
       ]
     },
     {
       "id": "exact-tower-attack-system",
       "query": "TowerAttackSystem server tower attack target acquire fire",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/combat/towerAttack.ts",
@@ -1663,10 +1850,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/combat/towerAttack.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1677,73 +1874,73 @@
         },
         {
           "rank": 2,
-          "path": "server/src/systems/combat/index.ts",
-          "role": "entrypoint",
-          "score": 265,
-          "lineRange": "5-10"
+          "path": "server/src/systems/combat/towerAttack.ts",
+          "role": "implementation",
+          "score": 0.008928571827709675,
+          "lineRange": "19-42"
         },
         {
           "rank": 3,
-          "path": "server/src/systems/combat/combatSystem.ts",
+          "path": "server/src/systems/combat/towerAttack.ts",
           "role": "implementation",
-          "score": 265,
-          "lineRange": "63-76"
+          "score": 0.0069444444961845875,
+          "lineRange": "155-213"
         },
         {
           "rank": 4,
-          "path": "server/src/systems/combat/towerAttack.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "68-76"
-        },
-        {
-          "rank": 5,
-          "path": "server/src/systems/combat/towerAttack.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "107-122"
-        },
-        {
-          "rank": 6,
-          "path": "server/src/systems/combat/towerAttack.test.ts",
-          "role": "test",
-          "score": 65,
-          "lineRange": "179-186"
-        },
-        {
-          "rank": 7,
-          "path": "src/network/rendering/localEffects.ts",
-          "role": "implementation",
-          "score": 0.016372142359614372,
-          "lineRange": "111-128"
-        },
-        {
-          "rank": 8,
-          "path": "server/src/systems/combat/combatSystem.ts",
-          "role": "implementation",
-          "score": 0.016124870628118515,
-          "lineRange": "233-264"
-        },
-        {
-          "rank": 9,
           "path": "server/src/systems/combat/towerAttack.ts",
           "role": "implementation",
           "score": 0.016102757304906845,
           "lineRange": "44-51"
         },
         {
-          "rank": 10,
-          "path": "src/towers/config/factory.ts",
+          "rank": 5,
+          "path": "server/src/systems/combat/towerAttack.ts",
           "role": "implementation",
-          "score": 0.01404685527086258,
-          "lineRange": "125-126"
+          "score": 0.009900989942252636,
+          "lineRange": "242-243"
+        },
+        {
+          "rank": 6,
+          "path": "src/network/rendering/localEffects.ts",
+          "role": "implementation",
+          "score": 0.016372142359614372,
+          "lineRange": "111-128"
+        },
+        {
+          "rank": 7,
+          "path": "server/src/systems/combat/combatSystem.ts",
+          "role": "implementation",
+          "score": 0.016124870628118515,
+          "lineRange": "233-264"
+        },
+        {
+          "rank": 8,
+          "path": "server/src/systems/monster/monsterAi.ts",
+          "role": "implementation",
+          "score": 0.013203462585806847,
+          "lineRange": "29-32"
+        },
+        {
+          "rank": 9,
+          "path": "server/src/systems/combat/combatSystem.ts",
+          "role": "implementation",
+          "score": 0.012848932296037674,
+          "lineRange": "279-284"
+        },
+        {
+          "rank": 10,
+          "path": "src/monsters/base/monsterShooter.ts",
+          "role": "implementation",
+          "score": 0.012579599395394325,
+          "lineRange": "150-240"
         }
       ]
     },
     {
       "id": "exact-damage-calculator",
       "query": "DamageCalculator armor damage critical elemental modifiers",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/combat/damageCalculator.ts",
@@ -1753,10 +1950,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/combat/damageCalculator.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1774,66 +1981,66 @@
         },
         {
           "rank": 3,
-          "path": "server/src/systems/combat/damageCalculator.test.ts",
-          "role": "test",
-          "score": 245,
-          "lineRange": "19-25"
+          "path": "server/src/systems/monster/monsterAi.ts",
+          "role": "implementation",
+          "score": 0.016928572207689285,
+          "lineRange": "114-117"
         },
         {
           "rank": 4,
-          "path": "server/src/systems/combat/damageCalculator.test.ts",
-          "role": "test",
-          "score": 245,
-          "lineRange": "13-13"
+          "path": "src/towers/base/towerLaser.ts",
+          "role": "implementation",
+          "score": 0.016786064952611923,
+          "lineRange": "203-204"
         },
         {
           "rank": 5,
-          "path": "server/src/systems/combat/damageCalculator.test.ts",
-          "role": "test",
-          "score": 0.00699300691485405,
-          "lineRange": "7-8"
+          "path": "server/src/systems/monster/monsterAi.ts",
+          "role": "implementation",
+          "score": 0.016394544392824173,
+          "lineRange": "193-200"
         },
         {
           "rank": 6,
-          "path": "server/src/systems/combat/index.ts",
-          "role": "entrypoint",
-          "score": 235,
-          "lineRange": "1-4"
+          "path": "src/monsters/base/monsterTerminator.ts",
+          "role": "implementation",
+          "score": 0.015866048634052277,
+          "lineRange": "63-81"
         },
         {
           "rank": 7,
-          "path": "server/src/systems/combat/combatSystem.ts",
+          "path": "server/src/systems/monster/monsterAbilities.ts",
           "role": "implementation",
-          "score": 235,
-          "lineRange": "63-76"
+          "score": 0.015640273690223694,
+          "lineRange": "112-117"
         },
         {
           "rank": 8,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "server/src/systems/monster/specialBehaviors.ts",
           "role": "implementation",
-          "score": 235,
-          "lineRange": "1-73"
+          "score": 0.015395731665194035,
+          "lineRange": "137-144"
         },
         {
           "rank": 9,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "server/src/systems/combat/monsterMeleeSystem.ts",
           "role": "implementation",
-          "score": 235,
-          "lineRange": "175-249"
+          "score": 0.014661654829978943,
+          "lineRange": "149-149"
         },
         {
           "rank": 10,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "server/src/systems/monster/monsterAbilities.ts",
           "role": "implementation",
-          "score": 235,
-          "lineRange": "686-757"
+          "score": 0.014499605633318424,
+          "lineRange": "77-83"
         }
       ]
     },
     {
       "id": "exact-vision-system",
       "query": "VisionSystem visibility broadcast filter fog of war",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/vision/visionSystem.ts",
@@ -1843,10 +2050,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/vision/visionSystem.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1864,66 +2081,66 @@
         },
         {
           "rank": 3,
-          "path": "server/src/systems/vision/broadcastFilter.ts",
+          "path": "src/systems/fog/fogOfWar.ts",
           "role": "implementation",
-          "score": 250,
-          "lineRange": "9-31"
+          "score": 0.008849557489156723,
+          "lineRange": "36-103"
         },
         {
           "rank": 4,
           "path": "server/src/systems/vision/broadcastFilter.ts",
           "role": "implementation",
           "score": 250,
-          "lineRange": "33-57"
+          "lineRange": "9-31"
         },
         {
           "rank": 5,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "server/src/systems/vision/broadcastFilter.ts",
           "role": "implementation",
           "score": 250,
-          "lineRange": "175-249"
+          "lineRange": "33-57"
         },
         {
           "rank": 6,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "src/systems/fog/fogOfWar.ts",
           "role": "implementation",
-          "score": 250,
-          "lineRange": "243-318"
+          "score": 0.008333333767950535,
+          "lineRange": "160-236"
         },
         {
           "rank": 7,
-          "path": "server/src/rooms/GameRoom.ts",
+          "path": "src/systems/fog/multiPlayerFogOfWar.ts",
           "role": "implementation",
-          "score": 250,
-          "lineRange": "1-73"
+          "score": 0.016896121203899384,
+          "lineRange": "47-52"
         },
         {
           "rank": 8,
-          "path": "server/src/schema/GameState.ts",
+          "path": "src/systems/fog/multiPlayerFogOfWar.ts",
           "role": "implementation",
-          "score": 235,
-          "lineRange": "76-157"
+          "score": 0.008771929889917374,
+          "lineRange": "54-61"
         },
         {
           "rank": 9,
-          "path": "server/src/systems/vision/index.ts",
-          "role": "barrel",
-          "score": 220,
-          "lineRange": "6-6"
+          "path": "src/systems/fog/fogOfWar.ts",
+          "role": "implementation",
+          "score": 0.008130080997943878,
+          "lineRange": "135-151"
         },
         {
           "rank": 10,
-          "path": "server/src/rooms/GameRoom.ts",
-          "role": "implementation",
-          "score": 220,
-          "lineRange": "96-185"
+          "path": "src/systems/index.ts",
+          "role": "barrel",
+          "score": 0.019801979884505272,
+          "lineRange": "17-18"
         }
       ]
     },
     {
       "id": "exact-visibility-map",
       "query": "VisibilityMap stores visible cells player vision",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/vision/visibilityMap.ts",
@@ -1933,10 +2150,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
-      "relatedTestsPresent": false,
+      "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/vision/visibilityMap.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -1949,71 +2176,71 @@
           "rank": 2,
           "path": "server/src/systems/vision/visibilityMap.ts",
           "role": "implementation",
-          "score": 0.018187832087278366,
-          "lineRange": "172-178"
-        },
-        {
-          "rank": 3,
-          "path": "server/src/systems/vision/visibilityMap.ts",
-          "role": "implementation",
           "score": 0.0071428571827709675,
           "lineRange": "33-40"
         },
         {
-          "rank": 4,
+          "rank": 3,
           "path": "server/src/systems/vision/visibilityMap.ts",
           "role": "implementation",
           "score": 0.007092198356986046,
           "lineRange": "15-21"
         },
         {
+          "rank": 4,
+          "path": "server/src/systems/vision/visibilityMap.ts",
+          "role": "implementation",
+          "score": 0.018187832087278366,
+          "lineRange": "172-178"
+        },
+        {
           "rank": 5,
-          "path": "server/src/systems/vision/visionSystem.ts",
-          "role": "implementation",
-          "score": 265,
-          "lineRange": "53-64"
-        },
-        {
-          "rank": 6,
-          "path": "server/src/systems/vision/visionSystem.ts",
-          "role": "implementation",
-          "score": 265,
-          "lineRange": "66-73"
-        },
-        {
-          "rank": 7,
-          "path": "server/src/systems/vision/visionSystem.ts",
-          "role": "implementation",
-          "score": 250,
-          "lineRange": "36-39"
-        },
-        {
-          "rank": 8,
-          "path": "server/src/systems/vision/index.ts",
-          "role": "barrel",
-          "score": 235,
-          "lineRange": "7-7"
-        },
-        {
-          "rank": 9,
-          "path": "server/src/systems/vision/index.ts",
-          "role": "barrel",
-          "score": 0.019232548773288727,
-          "lineRange": "9-9"
-        },
-        {
-          "rank": 10,
           "path": "server/src/systems/vision/visionSystem.ts",
           "role": "implementation",
           "score": 0.018278498202562332,
           "lineRange": "75-83"
+        },
+        {
+          "rank": 6,
+          "path": "server/src/schema/GameState.ts",
+          "role": "implementation",
+          "score": 0.017125293612480164,
+          "lineRange": "43-55"
+        },
+        {
+          "rank": 7,
+          "path": "src/systems/fog/fogOfWar.ts",
+          "role": "implementation",
+          "score": 0.016527805477380753,
+          "lineRange": "135-151"
+        },
+        {
+          "rank": 8,
+          "path": "src/systems/fog/fogOfWar.ts",
+          "role": "implementation",
+          "score": 0.016464699059724808,
+          "lineRange": "167-193"
+        },
+        {
+          "rank": 9,
+          "path": "src/systems/fog/fogOfWar.ts",
+          "role": "implementation",
+          "score": 0.015584567561745644,
+          "lineRange": "153-165"
+        },
+        {
+          "rank": 10,
+          "path": "src/systems/fog/fogOfWar.ts",
+          "role": "implementation",
+          "score": 0.01547619141638279,
+          "lineRange": "307-353"
         }
       ]
     },
     {
       "id": "nl-server-territory-ownership",
       "query": "server computes territory ownership influence and expansion from player structures",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/territory/territoryCalculator.ts",
@@ -2023,10 +2250,20 @@
       "firstExpectedRank": 2,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/territory/territoryCalculator.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -2065,45 +2302,45 @@
         },
         {
           "rank": 6,
-          "path": "shared/config/index.ts",
-          "role": "barrel",
-          "score": 0.012792574241757393,
-          "lineRange": "42-42"
-        },
-        {
-          "rank": 7,
           "path": "src/systems/territory/multiPlayerTerritory.ts",
           "role": "implementation",
           "score": 0.012604709714651108,
           "lineRange": "60-69"
         },
         {
-          "rank": 8,
+          "rank": 7,
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
           "score": 0.012554112821817398,
           "lineRange": "357-396"
         },
         {
-          "rank": 9,
+          "rank": 8,
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
           "score": 0.012190602719783783,
           "lineRange": "744-751"
         },
         {
-          "rank": 10,
+          "rank": 9,
           "path": "server/src/systems/territory/territoryCalculator.ts",
           "role": "implementation",
           "score": 0.009900989942252636,
           "lineRange": "46-136"
+        },
+        {
+          "rank": 10,
+          "path": "shared/types/ownership.ts",
+          "role": "implementation",
+          "score": 0.009900989942252636,
+          "lineRange": "1-17"
         }
       ]
     },
     {
       "id": "nl-server-energy-income",
       "query": "server calculates energy income from mines territory and production rules",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/energy/energyCalculator.ts",
@@ -2113,10 +2350,20 @@
       "firstExpectedRank": 2,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/energy/energyCalculator.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -2134,66 +2381,66 @@
         },
         {
           "rank": 3,
-          "path": "server/src/systems/mine/mineManager.test.ts",
-          "role": "test",
-          "score": 0.018464941531419754,
-          "lineRange": "144-165"
-        },
-        {
-          "rank": 4,
           "path": "src/systems/energy/energy.ts",
           "role": "implementation",
           "score": 0.018019480630755424,
           "lineRange": "70-90"
         },
         {
-          "rank": 5,
+          "rank": 4,
           "path": "server/src/systems/energy/energyCalculator.ts",
           "role": "implementation",
           "score": 0.017998386174440384,
           "lineRange": "45-52"
         },
         {
-          "rank": 6,
+          "rank": 5,
           "path": "server/src/systems/energy/energyCalculator.ts",
           "role": "implementation",
           "score": 0.017284495756030083,
           "lineRange": "78-84"
         },
         {
-          "rank": 7,
+          "rank": 6,
           "path": "src/systems/energy/mine.ts",
           "role": "implementation",
           "score": 0.0172489732503891,
           "lineRange": "116-123"
         },
         {
-          "rank": 8,
+          "rank": 7,
           "path": "server/src/systems/energy/energyCalculator.ts",
           "role": "implementation",
           "score": 0.01682150922715664,
           "lineRange": "13-23"
         },
         {
-          "rank": 9,
+          "rank": 8,
           "path": "src/systems/index.ts",
           "role": "barrel",
           "score": 0.01656966656446457,
           "lineRange": "8-9"
         },
         {
+          "rank": 9,
+          "path": "server/src/systems/energy/energyCalculator.ts",
+          "role": "implementation",
+          "score": 0.015583313070237637,
+          "lineRange": "34-43"
+        },
+        {
           "rank": 10,
-          "path": "server/src/systems/energy/energyCalculator.test.ts",
-          "role": "test",
-          "score": 0.01652892492711544,
-          "lineRange": "144-164"
+          "path": "server/src/systems/energy/index.ts",
+          "role": "entrypoint",
+          "score": 0.015394446440041065,
+          "lineRange": "1-8"
         }
       ]
     },
     {
       "id": "nl-server-mine-ownership",
       "query": "server updates mine capture state and ownership over time",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "server/src/systems/mine/mineManager.ts",
@@ -2203,10 +2450,20 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "server/src/systems/mine/mineManager.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
@@ -2217,73 +2474,73 @@
         },
         {
           "rank": 2,
-          "path": "server/src/systems/mine/mineManager.test.ts",
-          "role": "test",
-          "score": 0.01773383468389511,
-          "lineRange": "52-71"
-        },
-        {
-          "rank": 3,
           "path": "shared/types/ownership.ts",
           "role": "implementation",
           "score": 0.017284495756030083,
           "lineRange": "1-17"
         },
         {
-          "rank": 4,
+          "rank": 3,
           "path": "server/src/systems/mine/mineManager.ts",
           "role": "implementation",
-          "score": 0.017046278342604637,
+          "score": 0.017125293612480164,
           "lineRange": "263-284"
         },
         {
-          "rank": 5,
+          "rank": 4,
           "path": "server/src/systems/mine/mineManager.ts",
           "role": "implementation",
           "score": 0.01579602062702179,
           "lineRange": "216-243"
         },
         {
+          "rank": 5,
+          "path": "server/src/systems/mine/mineManager.ts",
+          "role": "implementation",
+          "score": 0.015173286199569702,
+          "lineRange": "107-133"
+        },
+        {
           "rank": 6,
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
-          "score": 0.015101411379873753,
+          "score": 0.0150223970413208,
           "lineRange": "569-604"
         },
         {
           "rank": 7,
           "path": "server/src/systems/mine/mineManager.ts",
           "role": "implementation",
-          "score": 0.015068260952830315,
-          "lineRange": "107-133"
-        },
-        {
-          "rank": 8,
-          "path": "server/src/systems/mine/mineManager.ts",
-          "role": "implementation",
           "score": 0.01484340988099575,
           "lineRange": "57-105"
         },
         {
-          "rank": 9,
+          "rank": 8,
           "path": "src/network/rendering/clientPrediction.ts",
           "role": "implementation",
           "score": 0.013813953846693039,
           "lineRange": "223-235"
         },
         {
-          "rank": 10,
+          "rank": 9,
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
           "score": 0.013331561349332333,
           "lineRange": "467-499"
+        },
+        {
+          "rank": 10,
+          "path": "shared/types/messages.ts",
+          "role": "implementation",
+          "score": 0.012710505165159702,
+          "lineRange": "328-339"
         }
       ]
     },
     {
       "id": "nl-client-ghost-tower-prediction",
       "query": "client shows ghost tower prediction and reconciles with server state",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/network/rendering/clientPrediction.ts",
@@ -2293,59 +2550,69 @@
       "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/rendering/clientPrediction.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
-          "path": "src/network/rendering/clientPrediction.ts",
-          "role": "implementation",
-          "score": 0.01951637491583824,
-          "lineRange": "223-235"
-        },
-        {
-          "rank": 2,
           "path": "src/network/rendering/clientPrediction.ts",
           "role": "implementation",
           "score": 0.019142700359225273,
           "lineRange": "20-40"
         },
         {
-          "rank": 3,
-          "path": "src/network/rendering/networkWorldAdapter.ts",
+          "rank": 2,
+          "path": "src/network/rendering/clientPrediction.ts",
           "role": "implementation",
-          "score": 0.019054532051086426,
-          "lineRange": "569-604"
+          "score": 0.01733630895614624,
+          "lineRange": "52-146"
+        },
+        {
+          "rank": 3,
+          "path": "src/network/rendering/clientPrediction.ts",
+          "role": "implementation",
+          "score": 0.014012433588504791,
+          "lineRange": "483-491"
         },
         {
           "rank": 4,
+          "path": "src/network/rendering/clientPrediction.ts",
+          "role": "implementation",
+          "score": 0.006802720949053764,
+          "lineRange": "473-481"
+        },
+        {
+          "rank": 5,
+          "path": "src/network/rendering/clientPrediction.ts",
+          "role": "implementation",
+          "score": 0.01951637491583824,
+          "lineRange": "223-235"
+        },
+        {
+          "rank": 6,
           "path": "src/network/rendering/clientPrediction.ts",
           "role": "implementation",
           "score": 0.018783070147037506,
           "lineRange": "237-257"
         },
         {
-          "rank": 5,
+          "rank": 7,
           "path": "src/network/rendering/clientPrediction.ts",
           "role": "implementation",
           "score": 0.017778128385543823,
           "lineRange": "192-221"
-        },
-        {
-          "rank": 6,
-          "path": "src/network/rendering/networkWorldAdapter.ts",
-          "role": "implementation",
-          "score": 0.017371032387018204,
-          "lineRange": "630-631"
-        },
-        {
-          "rank": 7,
-          "path": "src/network/rendering/clientPrediction.ts",
-          "role": "implementation",
-          "score": 0.01733630895614624,
-          "lineRange": "52-146"
         },
         {
           "rank": 8,
@@ -2363,44 +2630,54 @@
         },
         {
           "rank": 10,
-          "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
+          "path": "src/network/rendering/clientPrediction.ts",
           "role": "implementation",
-          "score": 0.016657639294862747,
-          "lineRange": "128-151"
+          "score": 0.015070028603076935,
+          "lineRange": "406-420"
         }
       ]
     },
     {
       "id": "nl-network-world-render-adapter",
       "query": "adapter exposes network state through the world interface used by rendering",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 3,
+      "firstExpectedRank": 1,
       "expectedImplementationTop3": true,
       "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
-      "relatedTestsPresent": false,
+      "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/rendering/networkWorldAdapter.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
-          "path": "src/ui/interfaces/battle/multiplayerBattleMode.ts",
+          "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
-          "score": 0.017460675910115242,
-          "lineRange": "34-106"
+          "score": 0.009803921915590763,
+          "lineRange": "82-151"
         },
         {
           "rank": 2,
-          "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
+          "path": "src/network/rendering/networkWorldAdapter.ts",
           "role": "implementation",
-          "score": 0.016835017129778862,
-          "lineRange": "299-307"
+          "score": 0.007042253389954567,
+          "lineRange": "332-345"
         },
         {
           "rank": 3,
@@ -2411,239 +2688,259 @@
         },
         {
           "rank": 4,
+          "path": "src/network/rendering/networkWorldAdapter.ts",
+          "role": "implementation",
+          "score": 0.01447230949997902,
+          "lineRange": "398-430"
+        },
+        {
+          "rank": 5,
+          "path": "src/network/rendering/networkWorldAdapter.ts",
+          "role": "implementation",
+          "score": 0.0078125,
+          "lineRange": "142-221"
+        },
+        {
+          "rank": 6,
+          "path": "src/ui/interfaces/battle/multiplayerBattleMode.ts",
+          "role": "implementation",
+          "score": 0.017460675910115242,
+          "lineRange": "34-106"
+        },
+        {
+          "rank": 7,
+          "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
+          "role": "implementation",
+          "score": 0.016750069335103035,
+          "lineRange": "299-307"
+        },
+        {
+          "rank": 8,
           "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation",
           "score": 0.015944499522447586,
           "lineRange": "265-267"
         },
         {
-          "rank": 5,
+          "rank": 9,
           "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation",
           "score": 0.015881741419434547,
           "lineRange": "23-26"
         },
         {
-          "rank": 6,
+          "rank": 10,
           "path": "src/ui/interfaces/battle/types.ts",
           "role": "implementation",
           "score": 0.0152357779443264,
           "lineRange": "171-214"
-        },
-        {
-          "rank": 7,
-          "path": "src/ui/interfaces/battle/multiplayerGameController.ts",
-          "role": "implementation",
-          "score": 0.015026132576167583,
-          "lineRange": "29-39"
-        },
-        {
-          "rank": 8,
-          "path": "src/network/rendering/renderProxy.ts",
-          "role": "implementation",
-          "score": 0.01454564742743969,
-          "lineRange": "96-168"
-        },
-        {
-          "rank": 9,
-          "path": "src/network/rendering/networkWorldAdapter.ts",
-          "role": "implementation",
-          "score": 0.014415348879992962,
-          "lineRange": "398-430"
-        },
-        {
-          "rank": 10,
-          "path": "src/network/rendering/renderProxy.ts",
-          "role": "implementation",
-          "score": 0.012103261426091194,
-          "lineRange": "325-393"
         }
       ]
     },
     {
       "id": "nl-render-proxy-entities",
       "query": "client render proxies translate network towers monsters buildings and bullets",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/network/rendering/renderProxy.ts",
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 13,
-      "expectedImplementationTop3": false,
-      "expectedImplementationTop5": false,
+      "firstExpectedRank": 1,
+      "expectedImplementationTop3": true,
+      "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/network/rendering/renderProxy.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
+          "path": "src/network/rendering/renderProxy.ts",
+          "role": "implementation",
+          "score": 0.007407407276332378,
+          "lineRange": "325-393"
+        },
+        {
+          "rank": 2,
+          "path": "src/network/rendering/renderProxy.ts",
+          "role": "implementation",
+          "score": 0.009708737954497337,
+          "lineRange": "96-168"
+        },
+        {
+          "rank": 3,
+          "path": "src/network/rendering/renderProxy.ts",
+          "role": "implementation",
+          "score": 0.009615384973585606,
+          "lineRange": "450-543"
+        },
+        {
+          "rank": 4,
+          "path": "src/network/rendering/renderProxy.ts",
+          "role": "implementation",
+          "score": 0.00917431153357029,
+          "lineRange": "65-70"
+        },
+        {
+          "rank": 5,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.008474576286971569,
+          "lineRange": "666-669"
+        },
+        {
+          "rank": 6,
+          "path": "src/network/networkClient.ts",
+          "role": "implementation",
+          "score": 0.008547008968889713,
+          "lineRange": "109-111"
+        },
+        {
+          "rank": 7,
           "path": "src/network/rendering/networkFog.ts",
           "role": "implementation",
           "score": 0.01694551855325699,
           "lineRange": "52-61"
         },
         {
-          "rank": 2,
+          "rank": 8,
           "path": "src/monsters/rendering/monsterRenderer.ts",
           "role": "implementation",
           "score": 0.01606658846139908,
           "lineRange": "250-261"
         },
         {
-          "rank": 3,
+          "rank": 9,
           "path": "src/network/validation/clientValidator.ts",
           "role": "implementation",
           "score": 0.01606198027729988,
           "lineRange": "114-115"
         },
         {
-          "rank": 4,
+          "rank": 10,
           "path": "src/towers/rendering/towerRenderer.ts",
           "role": "implementation",
           "score": 0.015604128129780293,
           "lineRange": "215-222"
-        },
-        {
-          "rank": 5,
-          "path": "src/game/entities/entityManager.ts",
-          "role": "implementation",
-          "score": 0.013655854389071465,
-          "lineRange": "200-294"
-        },
-        {
-          "rank": 6,
-          "path": "src/monsters/rendering/monsterRenderer.ts",
-          "role": "implementation",
-          "score": 0.01354927010834217,
-          "lineRange": "56-59"
-        },
-        {
-          "rank": 7,
-          "path": "src/network/rendering/networkWorldAdapter.ts",
-          "role": "implementation",
-          "score": 0.012780852615833282,
-          "lineRange": "817-832"
-        },
-        {
-          "rank": 8,
-          "path": "src/network/rendering/index.ts",
-          "role": "entrypoint",
-          "score": 0.009900989942252636,
-          "lineRange": "11-17"
-        },
-        {
-          "rank": 9,
-          "path": "src/game/spatial/spatialQuerySystem.ts",
-          "role": "implementation",
-          "score": 0.009900989942252636,
-          "lineRange": "126-156"
-        },
-        {
-          "rank": 10,
-          "path": "server/src/systems/combat/combatSystem.ts",
-          "role": "implementation",
-          "score": 0.009803921915590763,
-          "lineRange": "106-151"
         }
       ]
     },
     {
       "id": "nl-multiplayer-ui-world-facade",
       "query": "multiplayer UI panel manager reads world state through network client facade",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "strong",
       "expected": [
         {
           "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation"
         }
       ],
-      "firstExpectedRank": 7,
-      "expectedImplementationTop3": false,
-      "expectedImplementationTop5": false,
+      "firstExpectedRank": 1,
+      "expectedImplementationTop3": true,
+      "expectedImplementationTop5": true,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "direct_top5_hit",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/ui/interfaces/battle/multiplayerWorldFacade.ts"
+        ],
+        "checkedTopResults": 0,
+        "traces": []
+      },
       "topResults": [
         {
           "rank": 1,
-          "path": "src/ui/interfaces/battle/multiplayerBattleMode.ts",
+          "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation",
-          "score": 0.019801979884505272,
-          "lineRange": "191-202"
+          "score": 0.009803921915590763,
+          "lineRange": "15-110"
         },
         {
           "rank": 2,
           "path": "src/ui/interfaces/battle/panelManager.ts",
           "role": "implementation",
-          "score": 0.018706293776631355,
-          "lineRange": "85-134"
+          "score": 0.00699300691485405,
+          "lineRange": "30-87"
         },
         {
           "rank": 3,
-          "path": "src/ui/interfaces/battle/types.ts",
-          "role": "implementation",
-          "score": 0.018329426646232605,
-          "lineRange": "171-214"
-        },
-        {
-          "rank": 4,
-          "path": "src/ui/interfaces/battle/multiplayerBattleMode.ts",
-          "role": "implementation",
-          "score": 0.017837323248386383,
-          "lineRange": "34-106"
-        },
-        {
-          "rank": 5,
-          "path": "src/ui/interfaces/battle/multiplayerBattleMode.ts",
-          "role": "implementation",
-          "score": 0.01636194996535778,
-          "lineRange": "162-176"
-        },
-        {
-          "rank": 6,
-          "path": "src/ui/interfaces/multiplayer/types.ts",
-          "role": "implementation",
-          "score": 0.015579710714519024,
-          "lineRange": "1-14"
-        },
-        {
-          "rank": 7,
           "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation",
           "score": 0.015182185918092728,
           "lineRange": "115-126"
         },
         {
-          "rank": 8,
-          "path": "src/ui/index.ts",
-          "role": "entrypoint",
-          "score": 0.014870094135403633,
-          "lineRange": "1-6"
-        },
-        {
-          "rank": 9,
+          "rank": 4,
           "path": "src/network/networkClient.ts",
           "role": "implementation",
           "score": 0.014685756526887417,
           "lineRange": "666-669"
         },
         {
-          "rank": 10,
+          "rank": 5,
+          "path": "src/network/rendering/networkWorldAdapter.ts",
+          "role": "implementation",
+          "score": 0.008695651777088642,
+          "lineRange": "753-758"
+        },
+        {
+          "rank": 6,
           "path": "src/ui/interfaces/battle/multiplayerWorldFacade.ts",
           "role": "implementation",
           "score": 0.014036642387509346,
           "lineRange": "186-187"
+        },
+        {
+          "rank": 7,
+          "path": "src/ui/interfaces/battle/panelManager.ts",
+          "role": "implementation",
+          "score": 0.018706293776631355,
+          "lineRange": "85-134"
+        },
+        {
+          "rank": 8,
+          "path": "src/ui/interfaces/battle/panelManager.ts",
+          "role": "implementation",
+          "score": 0.008928571827709675,
+          "lineRange": "367-407"
+        },
+        {
+          "rank": 9,
+          "path": "src/ui/interfaces/battle/panelManager.ts",
+          "role": "implementation",
+          "score": 0.007633587811142206,
+          "lineRange": "439-479"
+        },
+        {
+          "rank": 10,
+          "path": "src/ui/interfaces/battle/panelManager.ts",
+          "role": "implementation",
+          "score": 0.009259259328246117,
+          "lineRange": "316-361"
         }
       ]
     },
     {
       "id": "nl-client-entity-lifecycle",
       "query": "client creates removes and updates towers monsters bullets and buildings in the world",
-      "manualLabel": "pending_manual_review",
+      "manualLabel": "partial",
       "expected": [
         {
           "path": "src/game/entities/entityManager.ts",
@@ -2653,10 +2950,1045 @@
       "firstExpectedRank": null,
       "expectedImplementationTop3": false,
       "expectedImplementationTop5": false,
+      "expectedImplementationTop5OrTraceEvidence": true,
       "firstResultRole": "implementation",
       "testFirst": false,
       "barrelFirst": false,
       "relatedTestsPresent": true,
+      "traceEvidence": {
+        "status": "covered_by_trace",
+        "expectedImplementationCovered": true,
+        "coveredExpectedPaths": [
+          "src/game/entities/entityManager.ts"
+        ],
+        "checkedTopResults": 8,
+        "traces": [
+          {
+            "resultRank": 1,
+            "resultPath": "src/network/rendering/networkFog.ts",
+            "symbol": "TowerRenderProxy",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/network/rendering/networkFog.ts",
+                "lineRange": "52-61",
+                "symbol": "TowerRenderProxy",
+                "rank": 1
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkFog.ts",
+                "line": 9,
+                "symbol": "TowerRenderProxy",
+                "targetPath": "src/network/rendering/renderProxy.ts",
+                "detail": "./renderProxy"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/network/rendering/renderProxy.ts",
+                "line": 103,
+                "symbol": "TowerRenderProxy"
+              },
+              {
+                "kind": "call",
+                "path": "src/network/rendering/networkWorldAdapter.ts",
+                "line": 448,
+                "symbol": "TowerRenderProxy",
+                "detail": "NetworkWorldAdapter._rebuildAllProxies -> TowerRenderProxy"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/network/rendering/renderProxy.ts:103"
+            ],
+            "entryReferences": [
+              "src/network/rendering/networkFog.ts:56",
+              "src/network/rendering/networkFog.ts:58",
+              "src/network/rendering/networkFog.ts:100"
+            ],
+            "callChain": [
+              "src/network/rendering/networkWorldAdapter.ts:448 NetworkWorldAdapter._rebuildAllProxies -> TowerRenderProxy",
+              "src/network/rendering/networkWorldAdapter.ts:481 NetworkWorldAdapter._syncProxies -> TowerRenderProxy.updateFromState",
+              "src/network/rendering/networkWorldAdapter.ts:490 NetworkWorldAdapter._syncProxies -> TowerRenderProxy.updateFromState"
+            ],
+            "moduleLinks": [
+              "src/network/rendering/networkFog.ts:9 -> src/network/rendering/renderProxy.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 1,
+            "resultPath": "src/network/rendering/networkFog.ts",
+            "symbol": "BuildingRenderProxy",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/network/rendering/networkFog.ts",
+                "lineRange": "52-61",
+                "symbol": "BuildingRenderProxy",
+                "rank": 1
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkFog.ts",
+                "line": 10,
+                "symbol": "BuildingRenderProxy",
+                "targetPath": "src/network/rendering/renderProxy.ts",
+                "detail": "./renderProxy"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/network/rendering/renderProxy.ts",
+                "line": 457,
+                "symbol": "BuildingRenderProxy"
+              },
+              {
+                "kind": "call",
+                "path": "src/network/rendering/networkWorldAdapter.ts",
+                "line": 339,
+                "symbol": "BuildingRenderProxy",
+                "detail": "NetworkWorldAdapter.getBaseBuilding -> BuildingRenderProxy.find"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/network/rendering/renderProxy.ts:457"
+            ],
+            "entryReferences": [
+              "src/network/rendering/networkFog.ts:56",
+              "src/network/rendering/networkFog.ts:59",
+              "src/network/rendering/networkFog.ts:84"
+            ],
+            "callChain": [
+              "src/network/rendering/networkWorldAdapter.ts:339 NetworkWorldAdapter.getBaseBuilding -> BuildingRenderProxy.find",
+              "src/network/rendering/networkWorldAdapter.ts:462 NetworkWorldAdapter._rebuildAllProxies -> BuildingRenderProxy",
+              "src/network/rendering/networkWorldAdapter.ts:481 NetworkWorldAdapter._syncProxies -> BuildingRenderProxy.updateFromState"
+            ],
+            "moduleLinks": [
+              "src/network/rendering/networkFog.ts:10 -> src/network/rendering/renderProxy.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 2,
+            "resultPath": "src/game/world.ts",
+            "symbol": "EntityManager",
+            "coveredExpectedPaths": [
+              "src/game/entities/entityManager.ts"
+            ],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/game/world.ts",
+                "lineRange": "431-493",
+                "symbol": "EntityManager",
+                "rank": 2
+              },
+              {
+                "kind": "import",
+                "path": "src/game/world.ts",
+                "line": 23,
+                "symbol": "EntityManager",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "./entities"
+              },
+              {
+                "kind": "export",
+                "path": "src/game/entities/index.ts",
+                "line": 5,
+                "symbol": "EntityManager",
+                "targetPath": "src/game/entities/entityManager.ts",
+                "detail": "./entityManager"
+              },
+              {
+                "kind": "export",
+                "path": "src/game/index.ts",
+                "line": 11,
+                "symbol": "EntityManager",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "./entities"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/game/entities/entityManager.ts",
+                "line": 130,
+                "symbol": "EntityManager"
+              },
+              {
+                "kind": "call",
+                "path": "src/game/world.ts",
+                "line": 437,
+                "symbol": "EntityManager",
+                "detail": "World.getAllBulletsToArr -> EntityManager.getAllBulletsToArr"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/game/entities/entityManager.ts:130"
+            ],
+            "entryReferences": [
+              "src/game/world.ts:437",
+              "src/game/world.ts:445",
+              "src/game/world.ts:454"
+            ],
+            "callChain": [
+              "src/game/world.ts:437 World.getAllBulletsToArr -> EntityManager.getAllBulletsToArr",
+              "src/game/world.ts:445 World.addTower -> EntityManager.addTower",
+              "src/game/world.ts:454 World.addMonster -> EntityManager.addMonster"
+            ],
+            "moduleLinks": [
+              "src/game/world.ts:23 -> src/game/entities/index.ts",
+              "src/game/entities/index.ts:5 -> src/game/entities/entityManager.ts",
+              "src/game/index.ts:11 -> src/game/entities/index.ts"
+            ],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 2,
+            "resultPath": "src/game/world.ts",
+            "symbol": "BulletLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/game/world.ts",
+                "lineRange": "431-493",
+                "symbol": "BulletLike",
+                "rank": 2
+              },
+              {
+                "kind": "import",
+                "path": "src/game/rendering/worldRenderer.ts",
+                "line": 18,
+                "symbol": "BulletLike",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "../entities"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/game/entities/entityManager.ts",
+                "line": 93,
+                "symbol": "BulletLike"
+              },
+              {
+                "kind": "call",
+                "path": "src/game/entities/entityManager.ts",
+                "line": 238,
+                "symbol": "BulletLike",
+                "detail": "EntityManager.getAllBuildingArr -> BulletLike.push"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/game/entities/entityManager.ts:93",
+              "src/monsters/ai/bulletDodge.ts:27",
+              "src/monsters/base/monster.ts:82"
+            ],
+            "entryReferences": [
+              "src/game/world.ts:436",
+              "src/game/world.ts:150",
+              "src/game/world.ts:151"
+            ],
+            "callChain": [
+              "src/game/entities/entityManager.ts:238 EntityManager.getAllBuildingArr -> BulletLike.push",
+              "src/game/entities/entityManager.ts:241 EntityManager.getAllBuildingArr -> BulletLike.push",
+              "src/game/entities/entityManager.ts:258 EntityManager.getAllBulletsToArr -> BulletLike.push"
+            ],
+            "moduleLinks": [
+              "src/game/rendering/worldRenderer.ts:18 -> src/game/entities/index.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 2,
+            "resultPath": "src/game/world.ts",
+            "symbol": "TowerLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/game/world.ts",
+                "lineRange": "431-493",
+                "symbol": "TowerLike",
+                "rank": 2
+              },
+              {
+                "kind": "import",
+                "path": "src/game/rendering/worldRenderer.ts",
+                "line": 18,
+                "symbol": "TowerLike",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "../entities"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkFog.ts",
+                "line": 8,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/renderProxy.ts",
+                "line": 13,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 32,
+                "symbol": "TowerLike"
+              },
+              {
+                "kind": "call",
+                "path": "src/systems/fog/fogOfWar.ts",
+                "line": 369,
+                "symbol": "TowerLike",
+                "detail": "FogOfWar._collectRadarTowers -> TowerLike.push"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:32",
+              "src/bullets/bullet.ts:66",
+              "src/game/entities/entityManager.ts:31"
+            ],
+            "entryReferences": [
+              "src/game/world.ts:444",
+              "src/game/world.ts:445",
+              "src/game/world.ts:141"
+            ],
+            "callChain": [
+              "src/systems/fog/fogOfWar.ts:369 FogOfWar._collectRadarTowers -> TowerLike.push",
+              "src/systems/save/saveManager.ts:637 deserialize -> TowerLike.push",
+              "src/towers/base/tower.ts:249 Tower.remove -> TowerLike.indexOf"
+            ],
+            "moduleLinks": [
+              "src/game/rendering/worldRenderer.ts:18 -> src/game/entities/index.ts",
+              "src/network/rendering/networkFog.ts:8 -> src/systems/fog/fogOfWar.ts",
+              "src/network/rendering/renderProxy.ts:13 -> src/systems/fog/fogOfWar.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 3,
+            "resultPath": "src/game/spatial/spatialQuerySystem.ts",
+            "symbol": "QuadTree",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/game/spatial/spatialQuerySystem.ts",
+                "lineRange": "126-156",
+                "symbol": "QuadTree",
+                "rank": 3
+              },
+              {
+                "kind": "import",
+                "path": "src/game/spatial/spatialQuerySystem.ts",
+                "line": 6,
+                "symbol": "QuadTree",
+                "targetPath": "src/core/physics/quadTree.ts",
+                "detail": "../../core/physics/quadTree"
+              },
+              {
+                "kind": "import",
+                "path": "src/core/physics/quadTree.test.ts",
+                "line": 2,
+                "symbol": "QuadTree",
+                "targetPath": "src/core/physics/quadTree.ts",
+                "detail": "./quadTree"
+              },
+              {
+                "kind": "import",
+                "path": "src/game/world.ts",
+                "line": 16,
+                "symbol": "QuadTree",
+                "targetPath": "src/core/physics/quadTree.ts",
+                "detail": "../core/physics/quadTree"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/core/physics/quadTree.ts",
+                "line": 11,
+                "symbol": "QuadTree"
+              },
+              {
+                "kind": "call",
+                "path": "src/game/spatial/spatialQuerySystem.ts",
+                "line": 144,
+                "symbol": "QuadTree",
+                "detail": "SpatialQuerySystem -> QuadTree.clear"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/core/physics/quadTree.ts:11"
+            ],
+            "entryReferences": [
+              "src/game/spatial/spatialQuerySystem.ts:144",
+              "src/game/spatial/spatialQuerySystem.ts:146",
+              "src/game/spatial/spatialQuerySystem.ts:149"
+            ],
+            "callChain": [
+              "src/game/spatial/spatialQuerySystem.ts:144 SpatialQuerySystem -> QuadTree.clear",
+              "src/game/spatial/spatialQuerySystem.ts:146 SpatialQuerySystem -> QuadTree",
+              "src/game/spatial/spatialQuerySystem.ts:149 SpatialQuerySystem -> QuadTree.insert"
+            ],
+            "moduleLinks": [
+              "src/game/spatial/spatialQuerySystem.ts:6 -> src/core/physics/quadTree.ts",
+              "src/core/physics/quadTree.test.ts:2 -> src/core/physics/quadTree.ts",
+              "src/game/world.ts:16 -> src/core/physics/quadTree.ts"
+            ],
+            "relatedTests": [
+              "src/core/physics/quadTree.test.ts:2",
+              "src/core/physics/quadTree.test.ts:8",
+              "src/core/physics/quadTree.test.ts:10"
+            ],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 3,
+            "resultPath": "src/game/spatial/spatialQuerySystem.ts",
+            "symbol": "ReadonlyArray",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/game/spatial/spatialQuerySystem.ts",
+                "lineRange": "126-156",
+                "symbol": "ReadonlyArray",
+                "rank": 3
+              },
+              {
+                "kind": "reference",
+                "path": "src/game/spatial/spatialQuerySystem.ts",
+                "line": 134,
+                "symbol": "ReadonlyArray"
+              }
+            ],
+            "ownerDefinitions": [],
+            "entryReferences": [
+              "src/game/spatial/spatialQuerySystem.ts:134",
+              "src/game/spatial/spatialQuerySystem.ts:135",
+              "src/game/spatial/spatialQuerySystem.ts:148"
+            ],
+            "callChain": [],
+            "moduleLinks": [],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 4,
+            "resultPath": "server/src/rooms/GameRoom.ts",
+            "symbol": "Client",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "server/src/rooms/GameRoom.ts",
+                "lineRange": "1690-1766",
+                "symbol": "Client",
+                "rank": 4
+              },
+              {
+                "kind": "call",
+                "path": "server/src/rooms/GameRoom.ts",
+                "line": 1703,
+                "symbol": "Client",
+                "detail": "GameRoom.syncTerritoryToClients -> Client.send"
+              }
+            ],
+            "ownerDefinitions": [],
+            "entryReferences": [
+              "server/src/rooms/GameRoom.ts:1703",
+              "server/src/rooms/GameRoom.ts:1699",
+              "server/src/rooms/GameRoom.ts:1700"
+            ],
+            "callChain": [
+              "server/src/rooms/GameRoom.ts:1703 GameRoom.syncTerritoryToClients -> Client.send",
+              "server/src/rooms/GameRoom.ts:2588 GameRoom.sendError -> Client.send",
+              "server/src/rooms/GameRoom.ts:2595 GameRoom.sendActionRejected -> Client.send"
+            ],
+            "moduleLinks": [
+              "server/src/rooms/GameRoom.ts:5",
+              "server/src/rooms/GameRoom.test.ts:1",
+              "server/src/rooms/LobbyRoom.ts:5"
+            ],
+            "relatedTests": [
+              "server/src/rooms/GameRoom.test.ts:1",
+              "server/src/rooms/GameRoom.test.ts:8",
+              "server/src/rooms/GameRoom.test.ts:58"
+            ],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 4,
+            "resultPath": "server/src/rooms/GameRoom.ts",
+            "symbol": "TerritorySyncPayload",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "server/src/rooms/GameRoom.ts",
+                "lineRange": "1690-1766",
+                "symbol": "TerritorySyncPayload",
+                "rank": 4
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkWorldAdapter.ts",
+                "line": 31,
+                "symbol": "TerritorySyncPayload",
+                "targetPath": "src/network/messages.ts",
+                "detail": "../messages"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "server/src/rooms/GameRoom.ts",
+                "line": 35,
+                "symbol": "TerritorySyncPayload"
+              },
+              {
+                "kind": "reference",
+                "path": "server/src/rooms/GameRoom.ts",
+                "line": 1724,
+                "symbol": "TerritorySyncPayload"
+              }
+            ],
+            "ownerDefinitions": [
+              "server/src/rooms/GameRoom.ts:35",
+              "server/src/shared/types/messages.ts:40",
+              "shared/types/messages.ts:332"
+            ],
+            "entryReferences": [
+              "server/src/rooms/GameRoom.ts:1724",
+              "src/network/rendering/networkWorldAdapter.ts:217",
+              "src/network/rendering/networkWorldAdapter.ts:218"
+            ],
+            "callChain": [],
+            "moduleLinks": [
+              "src/network/rendering/networkWorldAdapter.ts:31 -> src/network/messages.ts"
+            ],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 6,
+            "resultPath": "src/towers/base/towerHell.ts",
+            "symbol": "TowerLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerHell.ts",
+                "lineRange": "39-51",
+                "symbol": "TowerLike",
+                "rank": 6
+              },
+              {
+                "kind": "import",
+                "path": "src/game/rendering/worldRenderer.ts",
+                "line": 18,
+                "symbol": "TowerLike",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "../entities"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkFog.ts",
+                "line": 8,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/renderProxy.ts",
+                "line": 13,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 32,
+                "symbol": "TowerLike"
+              },
+              {
+                "kind": "call",
+                "path": "src/systems/fog/fogOfWar.ts",
+                "line": 369,
+                "symbol": "TowerLike",
+                "detail": "FogOfWar._collectRadarTowers -> TowerLike.push"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:32",
+              "src/bullets/bullet.ts:66",
+              "src/game/entities/entityManager.ts:31"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerHell.ts:43",
+              "src/towers/base/towerHell.ts:17",
+              "src/systems/fog/fogOfWar.ts:369"
+            ],
+            "callChain": [
+              "src/systems/fog/fogOfWar.ts:369 FogOfWar._collectRadarTowers -> TowerLike.push",
+              "src/systems/save/saveManager.ts:637 deserialize -> TowerLike.push",
+              "src/towers/base/tower.ts:249 Tower.remove -> TowerLike.indexOf"
+            ],
+            "moduleLinks": [
+              "src/game/rendering/worldRenderer.ts:18 -> src/game/entities/index.ts",
+              "src/network/rendering/networkFog.ts:8 -> src/systems/fog/fogOfWar.ts",
+              "src/network/rendering/renderProxy.ts:13 -> src/systems/fog/fogOfWar.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 6,
+            "resultPath": "src/towers/base/towerHell.ts",
+            "symbol": "TerritoryLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerHell.ts",
+                "lineRange": "39-51",
+                "symbol": "TerritoryLike",
+                "rank": 6
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 16,
+                "symbol": "TerritoryLike"
+              },
+              {
+                "kind": "reference",
+                "path": "src/towers/base/towerHell.ts",
+                "line": 44,
+                "symbol": "TerritoryLike"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:16",
+              "src/types/worldLike.ts:135"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerHell.ts:44",
+              "src/towers/base/towerHell.ts:14",
+              "src/buildings/building.ts:38"
+            ],
+            "callChain": [],
+            "moduleLinks": [],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 6,
+            "resultPath": "src/towers/base/towerHell.ts",
+            "symbol": "FogOfWarLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerHell.ts",
+                "lineRange": "39-51",
+                "symbol": "FogOfWarLike",
+                "rank": 6
+              },
+              {
+                "kind": "import",
+                "path": "src/systems/territory/territory.ts",
+                "line": 9,
+                "symbol": "FogOfWarLike",
+                "targetPath": "src/types/systems.ts",
+                "detail": "../../types/systems"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/types/systems.ts",
+                "line": 162,
+                "symbol": "FogOfWarLike"
+              },
+              {
+                "kind": "reference",
+                "path": "src/towers/base/towerHell.ts",
+                "line": 45,
+                "symbol": "FogOfWarLike"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/types/systems.ts:162",
+              "src/types/worldLike.ts:144"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerHell.ts:45",
+              "src/towers/base/towerHell.ts:15",
+              "src/monsters/base/monster.ts:38"
+            ],
+            "callChain": [],
+            "moduleLinks": [
+              "src/systems/territory/territory.ts:9 -> src/types/systems.ts"
+            ],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 7,
+            "resultPath": "src/towers/base/towerHammer.ts",
+            "symbol": "TowerLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerHammer.ts",
+                "lineRange": "43-54",
+                "symbol": "TowerLike",
+                "rank": 7
+              },
+              {
+                "kind": "import",
+                "path": "src/game/rendering/worldRenderer.ts",
+                "line": 18,
+                "symbol": "TowerLike",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "../entities"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkFog.ts",
+                "line": 8,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/renderProxy.ts",
+                "line": 13,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 32,
+                "symbol": "TowerLike"
+              },
+              {
+                "kind": "call",
+                "path": "src/systems/fog/fogOfWar.ts",
+                "line": 369,
+                "symbol": "TowerLike",
+                "detail": "FogOfWar._collectRadarTowers -> TowerLike.push"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:32",
+              "src/bullets/bullet.ts:66",
+              "src/game/entities/entityManager.ts:31"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerHammer.ts:47",
+              "src/towers/base/towerHammer.ts:23",
+              "src/systems/fog/fogOfWar.ts:369"
+            ],
+            "callChain": [
+              "src/systems/fog/fogOfWar.ts:369 FogOfWar._collectRadarTowers -> TowerLike.push",
+              "src/systems/save/saveManager.ts:637 deserialize -> TowerLike.push",
+              "src/towers/base/tower.ts:249 Tower.remove -> TowerLike.indexOf"
+            ],
+            "moduleLinks": [
+              "src/game/rendering/worldRenderer.ts:18 -> src/game/entities/index.ts",
+              "src/network/rendering/networkFog.ts:8 -> src/systems/fog/fogOfWar.ts",
+              "src/network/rendering/renderProxy.ts:13 -> src/systems/fog/fogOfWar.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 7,
+            "resultPath": "src/towers/base/towerHammer.ts",
+            "symbol": "TerritoryLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerHammer.ts",
+                "lineRange": "43-54",
+                "symbol": "TerritoryLike",
+                "rank": 7
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 16,
+                "symbol": "TerritoryLike"
+              },
+              {
+                "kind": "reference",
+                "path": "src/towers/base/towerHammer.ts",
+                "line": 48,
+                "symbol": "TerritoryLike"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:16",
+              "src/types/worldLike.ts:135"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerHammer.ts:48",
+              "src/towers/base/towerHammer.ts:20",
+              "src/buildings/building.ts:38"
+            ],
+            "callChain": [],
+            "moduleLinks": [],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 7,
+            "resultPath": "src/towers/base/towerHammer.ts",
+            "symbol": "FogOfWarLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerHammer.ts",
+                "lineRange": "43-54",
+                "symbol": "FogOfWarLike",
+                "rank": 7
+              },
+              {
+                "kind": "import",
+                "path": "src/systems/territory/territory.ts",
+                "line": 9,
+                "symbol": "FogOfWarLike",
+                "targetPath": "src/types/systems.ts",
+                "detail": "../../types/systems"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/types/systems.ts",
+                "line": 162,
+                "symbol": "FogOfWarLike"
+              },
+              {
+                "kind": "reference",
+                "path": "src/towers/base/towerHammer.ts",
+                "line": 49,
+                "symbol": "FogOfWarLike"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/types/systems.ts:162",
+              "src/types/worldLike.ts:144"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerHammer.ts:49",
+              "src/towers/base/towerHammer.ts:21",
+              "src/monsters/base/monster.ts:38"
+            ],
+            "callChain": [],
+            "moduleLinks": [
+              "src/systems/territory/territory.ts:9 -> src/types/systems.ts"
+            ],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 8,
+            "resultPath": "src/towers/base/towerRay.ts",
+            "symbol": "TowerLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerRay.ts",
+                "lineRange": "48-60",
+                "symbol": "TowerLike",
+                "rank": 8
+              },
+              {
+                "kind": "import",
+                "path": "src/game/rendering/worldRenderer.ts",
+                "line": 18,
+                "symbol": "TowerLike",
+                "targetPath": "src/game/entities/index.ts",
+                "detail": "../entities"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/networkFog.ts",
+                "line": 8,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "import",
+                "path": "src/network/rendering/renderProxy.ts",
+                "line": 13,
+                "symbol": "TowerLike",
+                "targetPath": "src/systems/fog/fogOfWar.ts",
+                "detail": "../../systems/fog/fogOfWar"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 32,
+                "symbol": "TowerLike"
+              },
+              {
+                "kind": "call",
+                "path": "src/systems/fog/fogOfWar.ts",
+                "line": 369,
+                "symbol": "TowerLike",
+                "detail": "FogOfWar._collectRadarTowers -> TowerLike.push"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:32",
+              "src/bullets/bullet.ts:66",
+              "src/game/entities/entityManager.ts:31"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerRay.ts:52",
+              "src/towers/base/towerRay.ts:23",
+              "src/systems/fog/fogOfWar.ts:369"
+            ],
+            "callChain": [
+              "src/systems/fog/fogOfWar.ts:369 FogOfWar._collectRadarTowers -> TowerLike.push",
+              "src/systems/save/saveManager.ts:637 deserialize -> TowerLike.push",
+              "src/towers/base/tower.ts:249 Tower.remove -> TowerLike.indexOf"
+            ],
+            "moduleLinks": [
+              "src/game/rendering/worldRenderer.ts:18 -> src/game/entities/index.ts",
+              "src/network/rendering/networkFog.ts:8 -> src/systems/fog/fogOfWar.ts",
+              "src/network/rendering/renderProxy.ts:13 -> src/systems/fog/fogOfWar.ts"
+            ],
+            "relatedTests": [],
+            "truncated": true,
+            "warnings": []
+          },
+          {
+            "resultRank": 8,
+            "resultPath": "src/towers/base/towerRay.ts",
+            "symbol": "TerritoryLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerRay.ts",
+                "lineRange": "48-60",
+                "symbol": "TerritoryLike",
+                "rank": 8
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/buildings/building.ts",
+                "line": 16,
+                "symbol": "TerritoryLike"
+              },
+              {
+                "kind": "reference",
+                "path": "src/towers/base/towerRay.ts",
+                "line": 53,
+                "symbol": "TerritoryLike"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/buildings/building.ts:16",
+              "src/types/worldLike.ts:135"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerRay.ts:53",
+              "src/towers/base/towerRay.ts:20",
+              "src/buildings/building.ts:38"
+            ],
+            "callChain": [],
+            "moduleLinks": [],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          },
+          {
+            "resultRank": 8,
+            "resultPath": "src/towers/base/towerRay.ts",
+            "symbol": "FogOfWarLike",
+            "coveredExpectedPaths": [],
+            "evidenceChain": [
+              {
+                "kind": "entry_result",
+                "path": "src/towers/base/towerRay.ts",
+                "lineRange": "48-60",
+                "symbol": "FogOfWarLike",
+                "rank": 8
+              },
+              {
+                "kind": "import",
+                "path": "src/systems/territory/territory.ts",
+                "line": 9,
+                "symbol": "FogOfWarLike",
+                "targetPath": "src/types/systems.ts",
+                "detail": "../../types/systems"
+              },
+              {
+                "kind": "owner_definition",
+                "path": "src/types/systems.ts",
+                "line": 162,
+                "symbol": "FogOfWarLike"
+              },
+              {
+                "kind": "reference",
+                "path": "src/towers/base/towerRay.ts",
+                "line": 54,
+                "symbol": "FogOfWarLike"
+              }
+            ],
+            "ownerDefinitions": [
+              "src/types/systems.ts:162",
+              "src/types/worldLike.ts:144"
+            ],
+            "entryReferences": [
+              "src/towers/base/towerRay.ts:54",
+              "src/towers/base/towerRay.ts:21",
+              "src/monsters/base/monster.ts:38"
+            ],
+            "callChain": [],
+            "moduleLinks": [
+              "src/systems/territory/territory.ts:9 -> src/types/systems.ts"
+            ],
+            "relatedTests": [],
+            "truncated": false,
+            "warnings": []
+          }
+        ]
+      },
       "topResults": [
         {
           "rank": 1,
@@ -2709,24 +4041,24 @@
         },
         {
           "rank": 8,
-          "path": "server/src/systems/combat/monsterMeleeSystem.test.ts",
-          "role": "test",
-          "score": 0.009708737954497337,
-          "lineRange": "51-80"
-        },
-        {
-          "rank": 9,
           "path": "src/towers/base/towerRay.ts",
           "role": "implementation",
           "score": 0.009708737954497337,
           "lineRange": "48-60"
         },
         {
+          "rank": 9,
+          "path": "src/towers/base/tower.ts",
+          "role": "implementation",
+          "score": 0.009523809887468815,
+          "lineRange": "70-86"
+        },
+        {
           "rank": 10,
-          "path": "server/src/systems/monster/monsterAbilities.test.ts",
-          "role": "test",
-          "score": 0.009615384973585606,
-          "lineRange": "46-68"
+          "path": "src/network/validation/clientValidator.ts",
+          "role": "implementation",
+          "score": 0.009433962404727936,
+          "lineRange": "48-131"
         }
       ]
     }

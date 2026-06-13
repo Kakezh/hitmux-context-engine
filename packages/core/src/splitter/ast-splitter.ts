@@ -17,10 +17,10 @@ const SPLITTABLE_NODE_TYPES = {
     javascript: ['function_declaration', 'arrow_function', 'class_declaration', 'method_definition', 'export_statement', 'lexical_declaration', 'variable_declaration'],
     typescript: ['function_declaration', 'arrow_function', 'class_declaration', 'method_definition', 'export_statement', 'interface_declaration', 'type_alias_declaration', 'lexical_declaration', 'variable_declaration'],
     python: ['function_definition', 'class_definition', 'decorated_definition', 'async_function_definition'],
-    java: ['method_declaration', 'class_declaration', 'interface_declaration', 'constructor_declaration'],
+    java: ['package_declaration', 'method_declaration', 'class_declaration', 'interface_declaration', 'constructor_declaration'],
     cpp: ['function_definition', 'class_specifier', 'namespace_definition', 'declaration'],
-    go: ['function_declaration', 'method_declaration', 'type_declaration', 'var_declaration', 'const_declaration'],
-    rust: ['function_item', 'impl_item', 'struct_item', 'enum_item', 'trait_item', 'mod_item'],
+    go: ['package_clause', 'function_declaration', 'method_declaration', 'type_declaration', 'var_declaration', 'const_declaration'],
+    rust: ['function_item', 'impl_item', 'struct_item', 'enum_item', 'trait_item', 'mod_item', 'use_declaration'],
     csharp: ['method_declaration', 'class_declaration', 'interface_declaration', 'struct_declaration', 'enum_declaration'],
     scala: ['method_declaration', 'class_declaration', 'interface_declaration', 'constructor_declaration']
 };
@@ -67,6 +67,11 @@ export class AstCodeSplitter implements Splitter {
             const rootNode = this.getRootNode(tree);
 
             if (!rootNode) {
+                const fallbackChunks = this.extractRegexChunks(code, language, filePath);
+                if (fallbackChunks.length > 0) {
+                    return this.refineChunks(fallbackChunks);
+                }
+
                 console.warn(`[ASTSplitter] ⚠️  Failed to parse AST for ${language}, falling back to LangChain: ${filePath || 'unknown'}`);
                 return await this.langchainFallback.split(code, language, filePath);
             }
@@ -79,6 +84,11 @@ export class AstCodeSplitter implements Splitter {
 
             return refinedChunks;
         } catch (error) {
+            const fallbackChunks = this.extractRegexChunks(code, language, filePath);
+            if (fallbackChunks.length > 0) {
+                return this.refineChunks(fallbackChunks);
+            }
+
             console.warn(`[ASTSplitter] ⚠️  AST splitter failed for ${language}, falling back to LangChain: ${error}`);
             return await this.langchainFallback.split(code, language, filePath);
         }
@@ -164,6 +174,7 @@ export class AstCodeSplitter implements Splitter {
                     language,
                     filePath,
                     chunkKind: hasHeader ? 'markdown_section' : 'markdown_preamble',
+                    chunkRole: 'reference',
                     symbolName: hasHeader ? sectionTitle : undefined,
                     symbolKind: hasHeader ? 'markdown_header' : undefined,
                     isDefinition: hasHeader,
@@ -193,12 +204,221 @@ export class AstCodeSplitter implements Splitter {
                     language,
                     filePath,
                     chunkKind: 'markdown',
+                    chunkRole: 'reference',
                     isDefinition: false,
                 }
             }];
         }
 
         return chunks;
+    }
+
+    private extractRegexChunks(code: string, language: string, filePath?: string): CodeChunk[] {
+        const lines = code.split('\n');
+        const starts = this.findRegexChunkStarts(lines, language);
+        if (starts.length === 0) {
+            return [];
+        }
+
+        const chunks: CodeChunk[] = [];
+        const occupiedStarts = new Set<number>();
+
+        for (const start of starts) {
+            const leadingStart = this.findLeadingCommentStartLine(start.lineIndex, lines);
+            const startKey = leadingStart;
+            if (occupiedStarts.has(startKey)) {
+                continue;
+            }
+            occupiedStarts.add(startKey);
+
+            const endIndex = this.findRegexChunkEnd(lines, start.lineIndex, start.nodeType, language);
+            const content = lines.slice(leadingStart, endIndex + 1).join('\n');
+            if (content.trim().length === 0) {
+                continue;
+            }
+
+            chunks.push({
+                content,
+                metadata: {
+                    startLine: leadingStart + 1,
+                    endLine: endIndex + 1,
+                    language,
+                    filePath,
+                    ...this.extractSymbolMetadata(start.nodeType, content, language, filePath),
+                }
+            });
+        }
+
+        return chunks;
+    }
+
+    private findRegexChunkStarts(lines: string[], language: string): Array<{ lineIndex: number; nodeType: string }> {
+        const normalizedLanguage = language.toLowerCase();
+        const starts: Array<{ lineIndex: number; nodeType: string }> = [];
+
+        for (let index = 0; index < lines.length; index++) {
+            const line = lines[index];
+            const trimmed = line.trim();
+            if (trimmed.length === 0) {
+                continue;
+            }
+
+            if (['typescript', 'ts', 'tsx', 'javascript', 'js', 'jsx'].includes(normalizedLanguage)) {
+                if (/^export\s+(?:type\s+)?(?:\*|\{[\s\S]*\})\s+from\s+['"][^'"]+['"];?$/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'export_statement' });
+                } else if (/^(?:export\s+)?(?:abstract\s+)?class\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'class_declaration' });
+                } else if (/^(?:export\s+)?(?:async\s+)?function\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'function_declaration' });
+                } else if (/^(?:export\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'interface_declaration' });
+                } else if (/^(?:export\s+)?type\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'type_alias_declaration' });
+                } else if (/^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'lexical_declaration' });
+                }
+                continue;
+            }
+
+            if (['python', 'py'].includes(normalizedLanguage)) {
+                if (/^\s*class\s+[A-Za-z_][A-Za-z0-9_]*\b/.test(line)) {
+                    starts.push({ lineIndex: index, nodeType: 'class_definition' });
+                } else if (/^\s*(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(line)) {
+                    starts.push({ lineIndex: index, nodeType: 'function_definition' });
+                }
+                continue;
+            }
+
+            if (normalizedLanguage === 'go') {
+                if (/^package\s+[A-Za-z_][A-Za-z0-9_]*\s*$/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'package_clause' });
+                } else if (/^type\s+[A-Za-z_][A-Za-z0-9_]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'type_declaration' });
+                } else if (/^func\s+(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'function_declaration' });
+                } else if (/^(?:var|const)\s+[A-Za-z_][A-Za-z0-9_]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'var_declaration' });
+                }
+                continue;
+            }
+
+            if (['rust', 'rs'].includes(normalizedLanguage)) {
+                if (/^(?:pub\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*;?$/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'mod_item' });
+                } else if (/^(?:pub\s+)?use\s+[\s\S]+;?$/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'use_declaration' });
+                } else if (/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'function_item' });
+                } else if (/^(?:pub(?:\([^)]*\))?\s+)?struct\s+[A-Za-z_][A-Za-z0-9_]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'struct_item' });
+                } else if (/^(?:pub(?:\([^)]*\))?\s+)?(?:enum|trait)\s+[A-Za-z_][A-Za-z0-9_]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'trait_item' });
+                }
+                continue;
+            }
+
+            if (['java', 'csharp', 'cs'].includes(normalizedLanguage)) {
+                if (/^package\s+[A-Za-z0-9_.]+\s*;?$/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'package_declaration' });
+                } else if (/^(?:public|private|protected|internal|static|final|abstract|sealed|\s)*(?:class|interface|struct|enum)\s+[A-Za-z_$][A-Za-z0-9_$]*\b/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'class_declaration' });
+                } else if (/^(?:public|private|protected|internal|static|final|abstract|override|virtual|async|sealed|synchronized|\s)*(?:[A-Za-z_$][A-Za-z0-9_$<>\[\],.?]*\s+)+[A-Za-z_$][A-Za-z0-9_$]*\s*\(/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'method_declaration' });
+                }
+                continue;
+            }
+
+            if (['c', 'cpp', 'c++'].includes(normalizedLanguage)) {
+                if (/^(?:static\s+)?(?:inline\s+)?[A-Za-z_][A-Za-z0-9_*\s]+\s+[A-Za-z_][A-Za-z0-9_]*\s*\([^;]*\)\s*\{?/.test(trimmed)) {
+                    starts.push({ lineIndex: index, nodeType: 'function_definition' });
+                }
+            }
+        }
+
+        return starts;
+    }
+
+    private findRegexChunkEnd(lines: string[], startLine: number, nodeType: string, language: string): number {
+        const normalizedLanguage = language.toLowerCase();
+        if (nodeType === 'package_clause' || nodeType === 'package_declaration' || nodeType === 'export_statement' || nodeType === 'use_declaration') {
+            return startLine;
+        }
+
+        if (['python', 'py'].includes(normalizedLanguage)) {
+            const startIndent = this.getIndentWidth(lines[startLine]);
+            for (let index = startLine + 1; index < lines.length; index++) {
+                const line = lines[index];
+                if (line.trim().length === 0 || this.isCommentLine(line.trim())) {
+                    continue;
+                }
+
+                if (this.getIndentWidth(line) <= startIndent) {
+                    return index - 1;
+                }
+            }
+            return lines.length - 1;
+        }
+
+        let balance = 0;
+        let sawOpeningBrace = false;
+        for (let index = startLine; index < lines.length; index++) {
+            for (const char of lines[index]) {
+                if (char === '{') {
+                    balance++;
+                    sawOpeningBrace = true;
+                } else if (char === '}') {
+                    balance--;
+                }
+            }
+
+            if (sawOpeningBrace && balance <= 0) {
+                return index;
+            }
+
+            if (!sawOpeningBrace && index > startLine && lines[index].trim().length > 0) {
+                return index - 1;
+            }
+        }
+
+        return startLine;
+    }
+
+    private findLeadingCommentStartLine(startLine: number, lines: string[]): number {
+        let row = startLine - 1;
+        let commentStart = startLine;
+        let foundComment = false;
+
+        while (row >= 0) {
+            const line = lines[row].trim();
+            if (line.length === 0) {
+                if (!foundComment) {
+                    break;
+                }
+                commentStart = row;
+                row--;
+                continue;
+            }
+
+            if (this.isCommentLine(line)) {
+                foundComment = true;
+                commentStart = row;
+                row--;
+                continue;
+            }
+
+            break;
+        }
+
+        while (commentStart < startLine && lines[commentStart].trim().length === 0) {
+            commentStart++;
+        }
+
+        return commentStart;
+    }
+
+    private getIndentWidth(line: string): number {
+        const match = line.match(/^\s*/);
+        return match ? match[0].replace(/\t/g, '    ').length : 0;
     }
 
     private extractMarkdownHeader(line: string): string | undefined {
@@ -227,7 +447,7 @@ export class AstCodeSplitter implements Splitter {
 
                 // Only create chunk if it has meaningful content
                 if (nodeText.trim().length > 0) {
-                    const symbolMetadata = this.extractSymbolMetadata(currentNode.type, nodeText);
+                    const symbolMetadata = this.extractSymbolMetadata(currentNode.type, nodeText, language, filePath);
                     chunks.push({
                         content: nodeText,
                         metadata: {
@@ -301,8 +521,10 @@ export class AstCodeSplitter implements Splitter {
 
     private extractSymbolMetadata(
         nodeType: string,
-        nodeText: string
-    ): Pick<CodeChunk['metadata'], 'chunkKind' | 'symbolName' | 'symbolKind' | 'isDefinition'> {
+        nodeText: string,
+        language: string,
+        filePath?: string
+    ): Pick<CodeChunk['metadata'], 'chunkKind' | 'chunkRole' | 'symbolName' | 'symbolKind' | 'isDefinition'> {
         const symbolPatterns: Array<{ kind: string; pattern: RegExp }> = [
             { kind: 'class', pattern: /\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/ },
             { kind: 'interface', pattern: /\binterface\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/ },
@@ -325,8 +547,10 @@ export class AstCodeSplitter implements Splitter {
         for (const { kind, pattern } of symbolPatterns) {
             const match = nodeText.match(pattern);
             if (match?.[1]) {
+                const chunkKind = this.getChunkKind(nodeType, kind);
                 return {
-                    chunkKind: this.getChunkKind(nodeType, kind),
+                    chunkKind,
+                    chunkRole: this.getChunkRole(nodeType, nodeText, chunkKind, true, kind, match[1], language, filePath),
                     symbolName: match[1],
                     symbolKind: kind,
                     isDefinition: true,
@@ -336,8 +560,42 @@ export class AstCodeSplitter implements Splitter {
 
         return {
             chunkKind: this.getChunkKind(nodeType),
+            chunkRole: this.getChunkRole(nodeType, nodeText, this.getChunkKind(nodeType), false, undefined, undefined, language, filePath),
             isDefinition: false,
         };
+    }
+
+    private getChunkRole(
+        nodeType: string,
+        nodeText: string,
+        chunkKind: string,
+        isDefinition: boolean,
+        symbolKind?: string,
+        symbolName?: string,
+        language?: string,
+        filePath?: string
+    ): NonNullable<CodeChunk['metadata']['chunkRole']> {
+        if (this.isModuleDeclarationChunk(nodeType, nodeText, language)) {
+            return 'module_decl';
+        }
+
+        if (this.isReExportChunk(nodeText, language)) {
+            return 're_export';
+        }
+
+        if (this.isTestCaseChunk(nodeText, symbolName, filePath)) {
+            return 'test_case';
+        }
+
+        if (!isDefinition && this.isAssertionChunk(nodeText)) {
+            return 'assertion';
+        }
+
+        if (isDefinition) {
+            return symbolKind === 'method' ? 'method_body' : 'definition';
+        }
+
+        return chunkKind === 'export' ? 'reference' : 'reference';
     }
 
     private getChunkKind(nodeType: string, symbolKind?: string): string {
@@ -351,6 +609,81 @@ export class AstCodeSplitter implements Splitter {
             return 'definition';
         }
         return 'code';
+    }
+
+    private isReExportChunk(nodeText: string, language?: string): boolean {
+        const meaningfulLines = this.stripLineComments(nodeText, language)
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        if (meaningfulLines.length === 0) {
+            return false;
+        }
+
+        if (language && ['python', 'py'].includes(language.toLowerCase())) {
+            return meaningfulLines.every(line =>
+                /^from\s+\.+[A-Za-z0-9_.*]+\s+import\s+[\s\S]+$/.test(line)
+                || /^__all__\s*=/.test(line)
+            );
+        }
+
+        if (language && ['rust', 'rs'].includes(language.toLowerCase())) {
+            return meaningfulLines.every(line =>
+                /^(?:pub\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*;?$/.test(line)
+                || /^pub\s+use\s+[\s\S]+;?$/.test(line)
+            );
+        }
+
+        return meaningfulLines.every(line =>
+            /^export\s+(?:type\s+)?(?:\*|\{[\s\S]*\})\s+from\s+['"][^'"]+['"];?$/.test(line)
+            || /^export\s+(?:type\s+)?\{[\s\S]*\};?$/.test(line)
+        );
+    }
+
+    private isModuleDeclarationChunk(nodeType: string, nodeText: string, language?: string): boolean {
+        const normalizedLanguage = language?.toLowerCase();
+        return nodeType === 'package_clause'
+            || nodeType === 'package_declaration'
+            || nodeType === 'mod_item'
+            || (normalizedLanguage === 'go' && /^\s*package\s+[A-Za-z_][A-Za-z0-9_]*\s*$/.test(nodeText.trim()))
+            || (normalizedLanguage === 'java' && /^\s*package\s+[A-Za-z0-9_.]+\s*;?\s*$/.test(nodeText.trim()));
+    }
+
+    private isTestCaseChunk(nodeText: string, symbolName?: string, filePath?: string): boolean {
+        const lowerPath = (filePath || '').replace(/\\/g, '/').toLowerCase();
+        const isTestFile = lowerPath.includes('/test/')
+            || lowerPath.includes('/tests/')
+            || lowerPath.includes('/__tests__/')
+            || lowerPath.includes('/spec/')
+            || lowerPath.includes('/specs/')
+            || /(?:\.test|\.spec|_test|_spec)\.[a-z0-9]+$/.test(lowerPath)
+            || /(?:^|\/)test_[^/]+\.py$/.test(lowerPath)
+            || /(?:^|\/)[^/]+test\.java$/.test(lowerPath)
+            || /(?:^|\/)[^/]+tests\.cs$/.test(lowerPath);
+
+        if (!isTestFile) {
+            return false;
+        }
+
+        return /^(?:test_|test[A-Z0-9_]|Test[A-Z0-9_])/.test(symbolName || '')
+            || /\b(?:it|test|describe)\s*\(/.test(nodeText)
+            || /\bassert(?:That|Equals|True|False)?\s*\(/.test(nodeText)
+            || /\bexpect\s*\(/.test(nodeText);
+    }
+
+    private isAssertionChunk(nodeText: string): boolean {
+        return /\b(?:assert|expect)\s*\(/.test(nodeText)
+            || /\bassert(?:That|Equals|True|False)\s*\(/.test(nodeText);
+    }
+
+    private stripLineComments(content: string, language?: string): string {
+        const withoutBlockComments = content.replace(/\/\*[\s\S]*?\*\//g, '');
+        if (language && ['python', 'py'].includes(language.toLowerCase())) {
+            return withoutBlockComments.replace(/^\s*#.*$/gm, '');
+        }
+
+        return withoutBlockComments.replace(/^\s*\/\/.*$/gm, '');
     }
 
     private splitLargeChunk(chunk: CodeChunk): CodeChunk[] {
@@ -403,6 +736,7 @@ export class AstCodeSplitter implements Splitter {
             language: chunk.metadata.language,
             filePath: chunk.metadata.filePath,
             chunkKind: isFirstSubChunk ? chunk.metadata.chunkKind : 'code',
+            chunkRole: isFirstSubChunk ? chunk.metadata.chunkRole : 'method_body',
         };
 
         if (isFirstSubChunk) {

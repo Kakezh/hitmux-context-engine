@@ -1,9 +1,9 @@
 # Configuration
 
-Hitmux Context Engine reads runtime options from JSONC files:
+Hitmux Context Engine reads runtime options from conf files:
 
-1. `~/.hitmux-context-engine/config.jsonc`
-2. `./.hitmux-context-engine/config.jsonc`
+1. `~/.hitmux-context-engine/config.conf`
+2. `./.hitmux-context-engine/config.conf`
 3. built-in defaults
 
 Project config overrides global config for fields that are present. Keep secret fields commented until you need them; an uncommented empty string overrides the global value.
@@ -14,101 +14,89 @@ Environment variables and `~/.hitmux-context-engine/.env` are not used for MCP p
 
 ```bash
 mkdir -p ~/.hitmux-context-engine
-cat > ~/.hitmux-context-engine/config.jsonc << 'EOF'
-{
-    "embeddingProvider": "OpenRouter",
-    "embeddingModel": "qwen/qwen3-embedding-4b",
-    "openrouterApiKey": "sk-or-your-openrouter-api-key",
-    "milvusAddress": "localhost:19530"
-}
+cat > ~/.hitmux-context-engine/config.conf << 'EOF'
+embeddingProvider = OpenRouter
+embeddingModel = qwen/qwen3-embedding-4b
+openrouterApiKey = sk-or-your-openrouter-api-key
+milvusAddress = localhost:19530
 EOF
 ```
 
 Add the MCP server without `env` entries:
 
 ```bash
-claude mcp add hitmux-context-engine -- npx @hitmux/hitmux-context-engine-mcp@latest
-codex mcp add hitmux-context-engine -- npx @hitmux/hitmux-context-engine-mcp@latest
+claude mcp add hitmux-context-engine -- npx @hitmux/hce@latest
+codex mcp add hitmux-context-engine -- npx @hitmux/hce@latest
 ```
+
+`@hitmux/hce`, `@hitmux/hitmux-context-engine`, and `@hitmux/hitmux-context-engine-mcp` start the same MCP server.
 
 For a local source checkout, `./scripts/install-local-global.sh` builds the MCP package and installs a user-level `hitmux-context-engine-mcp` command. Run it with `sudo` for a global install. Use that installed command in client setup, such as `claude mcp add hitmux-context-engine -- hitmux-context-engine-mcp` or `codex mcp add hitmux-context-engine -- hitmux-context-engine-mcp`.
 
-Database note: Use Local Milvus with `"milvusAddress": "localhost:19530"`. For self-hosted remote Milvus, replace it with the reachable host and port. For Zilliz Cloud, use the cloud public endpoint and add `"milvusToken"` with your Personal Key.
+Database note: Use Local Milvus with `milvusAddress = localhost:19530`. For self-hosted remote Milvus, replace it with the reachable host and port. For Zilliz Cloud, use the cloud public endpoint and add `milvusToken` with your Personal Key.
 
 ## Embedding Providers
 
 OpenRouter is the default provider.
 
-```jsonc
-{
-    "embeddingProvider": "OpenRouter",
-    "embeddingModel": "qwen/qwen3-embedding-4b",
-    "openrouterApiKey": "sk-or-your-openrouter-api-key"
-}
+```conf
+embeddingProvider = OpenRouter
+embeddingModel = qwen/qwen3-embedding-4b
+openrouterApiKey = sk-or-your-openrouter-api-key
 ```
 
 Database fields are configured separately in [Vector Database](#vector-database).
 
 OpenAI:
 
-```jsonc
-{
-    "embeddingProvider": "OpenAI",
-    "embeddingModel": "text-embedding-3-small",
-    "openaiApiKey": "sk-your-openai-api-key",
-    "openaiBaseUrl": "https://api.openai.com/v1"
-}
+```conf
+embeddingProvider = OpenAI
+embeddingModel = text-embedding-3-small
+openaiApiKey = sk-your-openai-api-key
+openaiBaseUrl = https://api.openai.com/v1
 ```
 
 Database fields are configured separately in [Vector Database](#vector-database).
 
 VoyageAI:
 
-```jsonc
-{
-    "embeddingProvider": "VoyageAI",
-    "embeddingModel": "voyage-code-3",
-    "voyageaiApiKey": "pa-your-voyageai-api-key"
-}
+```conf
+embeddingProvider = VoyageAI
+embeddingModel = voyage-code-3
+voyageaiApiKey = pa-your-voyageai-api-key
 ```
 
 Database fields are configured separately in [Vector Database](#vector-database).
 
 Gemini:
 
-```jsonc
-{
-    "embeddingProvider": "Gemini",
-    "embeddingModel": "gemini-embedding-001",
-    "geminiApiKey": "your-gemini-api-key",
-    "geminiBaseUrl": "https://generativelanguage.googleapis.com"
-}
+```conf
+embeddingProvider = Gemini
+embeddingModel = gemini-embedding-001
+geminiApiKey = your-gemini-api-key
+geminiBaseUrl = https://generativelanguage.googleapis.com
 ```
 
 Database fields are configured separately in [Vector Database](#vector-database).
 
 Ollama:
 
-```jsonc
-{
-    "embeddingProvider": "Ollama",
-    "embeddingModel": "nomic-embed-text",
-    "ollamaHost": "http://127.0.0.1:11434"
-}
+```conf
+embeddingProvider = Ollama
+embeddingModel = nomic-embed-text
+ollamaHost = http://127.0.0.1:11434
 ```
 
 Database fields are configured separately in [Vector Database](#vector-database).
 
 ## Vector Database
 
-Hitmux Context Engine currently supports Milvus-compatible vector storage through `config.jsonc`. This includes Local Milvus, self-hosted remote Milvus, and Zilliz Cloud. SQLite, Chroma, Qdrant, LanceDB, and other database backends are not selectable from `config.jsonc`.
+Hitmux Context Engine currently supports Milvus-compatible vector storage through `config.conf`. This includes Local Milvus, self-hosted remote Milvus, and Zilliz Cloud. SQLite, Chroma, Qdrant, LanceDB, and other database backends are not selectable from `config.conf`.
 
 Local Milvus:
 
-```jsonc
-{
-    "milvusAddress": "localhost:19530"
-}
+```conf
+milvusAddress = localhost:19530
 ```
 
 Local Milvus deployment on Linux without Docker:
@@ -129,40 +117,71 @@ dpkg-query -W -f='${Package} ${Version}\n' milvus
 ss -ltnp | rg '(:19530|:9091|:2379|:2380)'
 ```
 
+Local Milvus deployment on macOS with Docker Desktop:
+
+```bash
+mkdir -p ~/milvus-local
+cd ~/milvus-local
+curl -sfL https://raw.githubusercontent.com/milvus-io/milvus/master/scripts/standalone_embed.sh \
+    -o standalone_embed.sh
+bash standalone_embed.sh start
+```
+
+Verify the container before indexing:
+
+```bash
+docker ps --filter name=milvus-standalone
+curl -f http://localhost:9091/healthz
+lsof -nP -iTCP:19530 -sTCP:LISTEN
+```
+
+Docker Desktop on macOS should have at least 2 vCPUs and 8 GB memory assigned to its VM.
+
+Local Milvus deployment on Windows with Docker Desktop:
+
+```powershell
+mkdir $HOME\milvus-local
+cd $HOME\milvus-local
+Invoke-WebRequest https://raw.githubusercontent.com/milvus-io/milvus/refs/heads/master/scripts/standalone_embed.bat -OutFile standalone.bat
+.\standalone.bat start
+```
+
+Verify the container before indexing:
+
+```powershell
+docker ps --filter name=milvus-standalone
+curl.exe -f http://localhost:9091/healthz
+netstat -ano | findstr ":19530"
+```
+
+Docker Desktop on Windows should use the WSL 2 backend. Keep the Milvus data directory in a normal user-owned folder, and run PowerShell or Command Prompt as administrator if Docker Desktop requires it.
+
 The MCP config only needs the local gRPC endpoint:
 
-```jsonc
-{
-    "milvusAddress": "localhost:19530"
-}
+```conf
+milvusAddress = localhost:19530
 ```
 
 Do not set `milvusToken` for a default local package install. After switching from a remote database or changing embedding model/provider, re-index affected codebases so collection metadata matches the active embedding configuration.
 
 Self-hosted remote Milvus:
 
-```jsonc
-{
-    "milvusAddress": "your-milvus-host:19530"
-}
+```conf
+milvusAddress = your-milvus-host:19530
 ```
 
 If your self-hosted Milvus deployment requires authentication, add `milvusToken`:
 
-```jsonc
-{
-    "milvusAddress": "your-milvus-host:19530",
-    "milvusToken": "your-milvus-token"
-}
+```conf
+milvusAddress = your-milvus-host:19530
+milvusToken = your-milvus-token
 ```
 
 Zilliz Cloud:
 
-```jsonc
-{
-    "milvusAddress": "your-zilliz-cloud-public-endpoint",
-    "milvusToken": "your-zilliz-cloud-personal-key"
-}
+```conf
+milvusAddress = your-zilliz-cloud-public-endpoint
+milvusToken = your-zilliz-cloud-personal-key
 ```
 
 Optional database fields:
@@ -180,11 +199,13 @@ If `milvusAddress` is omitted and `milvusToken` is set, token-based address reso
 
 Additional extensions and ignore patterns are additive.
 
-```jsonc
-{
-    "customExtensions": [".vue", ".svelte", ".astro"],
-    "customIgnorePatterns": ["fixtures/**", "tmp/**", "*.backup"]
-}
+```conf
+customExtensions = .vue
+customExtensions = .svelte
+customExtensions = .astro
+customIgnorePatterns = fixtures/**
+customIgnorePatterns = tmp/**
+customIgnorePatterns = *.backup
 ```
 
 The final file set is:
@@ -200,84 +221,81 @@ Default ignore patterns include dependency folders, build output, version contro
 
 Use these fields when collection naming needs to be stable across paths or shared across checkouts.
 
-```jsonc
-{
-    "collectionNameOverride": "my_project",
-    "codebaseIdentityMode": "path",
-    "codebaseIdentity": "shared-custom-identity",
-    "globalCollectionName": "default",
-    "gitRemoteName": "origin"
-}
+```conf
+collectionNameOverride = my_project
+codebaseIdentityMode = path
+codebaseIdentity = shared-custom-identity
+globalCollectionName = default
+gitRemoteName = origin
 ```
 
 `codebaseIdentityMode` accepts `path`, `gitRemote`, `global`, or `custom`.
 
 ## Indexing And Sync
 
-```jsonc
-{
-    "autoIndexing": true,
-    "interactiveIndexing": true,
-    "backgroundSync": true,
-    "syncIntervalMs": 300000,
-    "syncLockStaleMs": 600000,
-    "triggerWatcher": true
-}
+```conf
+autoIndexing = true
+interactiveIndexing = true
+backgroundSync = true
+syncIntervalMs = 300000
+syncLockStaleMs = 600000
+triggerWatcher = true
 ```
 
 Useful combinations:
 
-- Set `"backgroundSync": false` to disable periodic polling while keeping trigger-based sync.
-- Set `"triggerWatcher": false` on read-only or sandboxed filesystems.
-- Set `"interactiveIndexing": false` to block `index_codebase` writes while still allowing dry-run previews.
+- Set `backgroundSync = false` to disable periodic polling while keeping trigger-based sync.
+- Set `triggerWatcher = false` on read-only or sandboxed filesystems.
+- Set `interactiveIndexing = false` to block `index_codebase` writes while still allowing dry-run previews.
 
 The trigger watcher listens to `~/.hitmux-context-engine/.sync-trigger`. Touching that file requests a debounced re-index.
 
 ## Full Template
 
-```jsonc
-{
-    "embeddingProvider": "OpenRouter",
-    "embeddingModel": "qwen/qwen3-embedding-4b",
+```conf
+embeddingProvider = OpenRouter
+embeddingModel = qwen/qwen3-embedding-4b
 
-    "openrouterApiKey": "sk-or-your-openrouter-api-key",
-    "openaiApiKey": "sk-your-openai-api-key",
-    "openaiBaseUrl": "https://api.openai.com/v1",
-    "voyageaiApiKey": "pa-your-voyageai-api-key",
-    "geminiApiKey": "your-gemini-api-key",
-    "geminiBaseUrl": "https://generativelanguage.googleapis.com",
-    "ollamaModel": "nomic-embed-text",
-    "ollamaHost": "http://127.0.0.1:11434",
+openrouterApiKey = sk-or-your-openrouter-api-key
+openaiApiKey = sk-your-openai-api-key
+openaiBaseUrl = https://api.openai.com/v1
+voyageaiApiKey = pa-your-voyageai-api-key
+geminiApiKey = your-gemini-api-key
+geminiBaseUrl = https://generativelanguage.googleapis.com
+ollamaModel = nomic-embed-text
+ollamaHost = http://127.0.0.1:11434
 
-    "milvusAddress": "localhost:19530",
-    "milvusToken": "your-zilliz-or-milvus-token",
-    "milvusUseRestful": false,
-    "milvusCollectionLimitCheckTimeoutMs": 15000,
-    "zillizBaseUrl": "https://api.cloud.zilliz.com",
+milvusAddress = localhost:19530
+milvusToken = your-zilliz-or-milvus-token
+milvusUseRestful = false
+milvusCollectionLimitCheckTimeoutMs = 15000
+zillizBaseUrl = https://api.cloud.zilliz.com
 
-    "collectionNameOverride": "my_project",
-    "codebaseIdentityMode": "path",
-    "codebaseIdentity": "shared-custom-identity",
-    "globalCollectionName": "default",
-    "gitRemoteName": "origin",
-    "hybridMode": true,
+collectionNameOverride = my_project
+codebaseIdentityMode = path
+codebaseIdentity = shared-custom-identity
+globalCollectionName = default
+gitRemoteName = origin
+hybridMode = true
 
-    "searchTimeoutMs": 30000,
-    "embeddingBatchSize": 32,
-    "embeddingConcurrency": 1,
-    "customExtensions": [".vue", ".svelte", ".astro"],
-    "customIgnorePatterns": ["temp/**", "*.backup"],
-    "merkleSnapshotMaxBytes": 52428800,
+searchTimeoutMs = 30000
+embeddingBatchSize = 32
+embeddingConcurrency = 1
+customExtensions = .vue
+customExtensions = .svelte
+customExtensions = .astro
+customIgnorePatterns = temp/**
+customIgnorePatterns = *.backup
+merkleSnapshotMaxBytes = 52428800
 
-    "autoIndexing": true,
-    "interactiveIndexing": true,
-    "backgroundSync": true,
-    "syncIntervalMs": 300000,
-    "syncLockStaleMs": 600000,
-    "triggerWatcher": true,
+autoIndexing = true
+interactiveIndexing = true
+backgroundSync = true
+syncIntervalMs = 300000
+syncLockStaleMs = 600000
+triggerWatcher = true
 
-    "splitterType": "ast",
-    "searchTopK": 5,
-    "searchThreshold": 0
-}
+splitterType = ast
+searchTopK = 5
+searchThreshold = 0
 ```

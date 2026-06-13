@@ -19,13 +19,14 @@
         "allowSyntheticDefaultImports": true,
         "downlevelIteration": true,
         "incremental": true,
-        "tsBuildInfoFile": "./dist/.tsbuildinfo"
+        "tsBuildInfoFile": "./tsconfig.tsbuildinfo"
     },
     "include": [
         "src/**/*"
     ],
     "exclude": [
         "dist",
-        "node_modules"
+        "node_modules",
+        "src/**/*.test.ts"
     ]
 }

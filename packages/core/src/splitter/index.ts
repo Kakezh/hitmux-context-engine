@@ -7,6 +7,7 @@ export interface CodeChunk {
         language?: string;
         filePath?: string;
         chunkKind?: string;
+        chunkRole?: string;
         symbolName?: string;
         symbolKind?: string;
         isDefinition?: boolean;

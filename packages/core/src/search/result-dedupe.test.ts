@@ -281,6 +281,40 @@ describe('deduplicateSemanticSearchResults', () => {
         expect(deduped[0].content).toMatch(/^export function packVisionSources/);
     });
 
+    it('keeps exact owner matches over higher-scoring duplicate fragments', () => {
+        const deduped = deduplicateSemanticSearchResults([
+            createResult({
+                content: [
+                    '    const packed = packVisionSources(payload);',
+                    '    return packed;',
+                ].join('\n'),
+                startLine: 22,
+                endLine: 23,
+                score: 25,
+                scoreReasons: ['reference_match'],
+            }),
+            createResult({
+                content: [
+                    'export function packVisionSources(payload: WorkerPayload): PackedPayload {',
+                    '    const packed = packVisionSources(payload);',
+                    '    return packed;',
+                    '}',
+                ].join('\n'),
+                startLine: 21,
+                endLine: 24,
+                score: 9,
+                scoreReasons: ['exact_symbol_definition'],
+            }),
+        ]);
+
+        expect(deduped).toHaveLength(1);
+        expect(deduped[0]).toMatchObject({
+            startLine: 21,
+            endLine: 24,
+            scoreReasons: ['exact_symbol_definition'],
+        });
+    });
+
     it('keeps the valid line range result over an unavailable duplicate with a higher score', () => {
         const sharedContent = [
             'export function packVisionSources(payload: WorkerPayload): PackedPayload {',

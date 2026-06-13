@@ -369,7 +369,7 @@ export class FileSynchronizer {
         if (estimatedBytes > maxBytes) {
             throw new SnapshotTooLargeError(
                 `Merkle snapshot for '${this.rootDir}' is too large to write safely: estimated ${estimatedBytes} bytes exceeds limit ${maxBytes} bytes. ` +
-                'Increase merkleSnapshotMaxBytes in ~/.hitmux-context-engine/config.jsonc or reduce indexed files with ignore patterns.'
+                'Increase merkleSnapshotMaxBytes in ~/.hitmux-context-engine/config.conf or reduce indexed files with ignore patterns.'
             );
         }
     }
