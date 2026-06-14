@@ -11,9 +11,9 @@ Packages:
 Run with:
 
 ```bash
-npx @hitmux/hce@latest
-npx @hitmux/hitmux-context-engine@latest
-npx @hitmux/hitmux-context-engine-mcp@latest
+npx -y @hitmux/hce@latest
+npx -y @hitmux/hitmux-context-engine@latest
+npx -y @hitmux/hitmux-context-engine-mcp@latest
 ```
 
 Configure product options in `~/.hitmux-context-engine/config.conf` or `./.hitmux-context-engine/config.conf`. See [configuration.md](configuration.md).

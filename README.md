@@ -24,13 +24,13 @@ EOF
 Add the MCP server to Claude Code:
 
 ```bash
-claude mcp add hitmux-context-engine -- npx @hitmux/hce@latest
+claude mcp add hitmux-context-engine -- npx -y @hitmux/hce@latest
 ```
 
 Or add it to OpenAI Codex CLI:
 
 ```bash
-codex mcp add hitmux-context-engine -- npx @hitmux/hce@latest
+codex mcp add hitmux-context-engine -- npx -y @hitmux/hce@latest
 ```
 
 The full package alias `@hitmux/hitmux-context-engine` and the original MCP package `@hitmux/hitmux-context-engine-mcp` start the same server.
@@ -45,7 +45,7 @@ Check the indexing status
 Find functions that handle user authentication
 ```
 
-More client examples are in [docs/quick-start.md](docs/quick-start.md).
+More client examples, including Cursor, Windsurf, Claude Desktop, Gemini CLI, Qwen Code, VS Code MCP, Cline, and Roo Code, are in [docs/quick-start.md](docs/quick-start.md).
 
 For a local source checkout, run `./scripts/install-local-global.sh` to build the workspace and install a user-level `hitmux-context-engine-mcp` command from the current checkout. Run the script with `sudo` to install the command globally. Then use that command in MCP clients, for example `claude mcp add hitmux-context-engine -- hitmux-context-engine-mcp` or `codex mcp add hitmux-context-engine -- hitmux-context-engine-mcp`.
 

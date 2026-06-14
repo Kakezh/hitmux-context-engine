@@ -22,11 +22,11 @@ milvusAddress = localhost:19530
 EOF
 ```
 
-Add the MCP server without `env` entries:
+Add the MCP server:
 
 ```bash
-claude mcp add hitmux-context-engine -- npx @hitmux/hce@latest
-codex mcp add hitmux-context-engine -- npx @hitmux/hce@latest
+claude mcp add hitmux-context-engine -- npx -y @hitmux/hce@latest
+codex mcp add hitmux-context-engine -- npx -y @hitmux/hce@latest
 ```
 
 `@hitmux/hce`, `@hitmux/hitmux-context-engine`, and `@hitmux/hitmux-context-engine-mcp` start the same MCP server.
