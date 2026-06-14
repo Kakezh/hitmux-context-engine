@@ -7,7 +7,7 @@
     "types": "dist/index.d.ts",
     "bin": "dist/index.js",
     "scripts": {
-        "build": "pnpm clean && tsc --build --force",
+        "build": "pnpm clean && tsc -p tsconfig.json",
         "dev": "tsx --watch src/index.ts",
         "clean": "rimraf dist",
         "lint": "eslint src --ext .ts",
@@ -16,7 +16,7 @@
         "test": "node --import tsx --test \"src/**/*.test.ts\"",
         "start": "tsx src/index.ts",
         "start:with-config": "tsx src/index.ts",
-        "prepublishOnly": "pnpm build"
+        "prepublishOnly": "pnpm -w build:mcp"
     },
     "dependencies": {
         "@hitmux/hitmux-context-engine-core": "workspace:*",

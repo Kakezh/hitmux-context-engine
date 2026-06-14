@@ -14,6 +14,7 @@
 
 * `packages/core`: 核心 TypeScript 包，负责项目索引、文件收集、ignore 规则、splitter、embedding、向量库、搜索和 `Context` API。
 * `packages/mcp`: MCP server 包，负责工具参数校验、配置解析、embedding provider 适配、handler、snapshot、sync 和 server 入口。
+* `packages/hce` 和 `packages/hitmux-context-engine`: 发布到 npm 的薄 alias 包，只提供命令入口并依赖 MCP 包。
 * `examples/basic-usage`: 本地示例，依赖 workspace 内的 core 包。
 * `docs`: 用户文档，包括 quick start、configuration、package reference 和 troubleshooting。
 * `evaluation`: Python/uv 评测代码、MCP/grep/read/edit server 对比、case study 日志和结果。
@@ -27,16 +28,19 @@
 要求 Node `>=20`、pnpm `>=10`。
 
 * `pnpm install`: 按 `pnpm-lock.yaml` 安装依赖。
-* `pnpm build`: 构建 `packages/*`。
+* `pnpm build`: 清理 core/MCP 构建产物，用一次 TypeScript project build 顺序构建 core 和 MCP，然后并行检查 alias 包。
 * `pnpm build:core`: 构建 `@hitmux/hitmux-context-engine-core`。
-* `pnpm build:mcp`: 构建 `@hitmux/hitmux-context-engine-mcp`。
-* `pnpm build:examples`: 构建 `examples/*`。
+* `pnpm build:mcp`: 清理并顺序构建 core 和 MCP。
+* `pnpm build:aliases`: 并行检查 `@hitmux/hce` 和 `@hitmux/hitmux-context-engine` 的 bin wrapper。
+* `pnpm build:examples`: 并行构建 `examples/*`。
 * `pnpm dev`: 启动 `packages/*` 的 watch。
 * `pnpm dev:core`: 启动 core 的 `tsc --watch`。
 * `pnpm dev:mcp`: 使用 `tsx --watch` 启动 MCP server。
-* `pnpm lint`: 对 `packages/*` 运行 ESLint。
-* `pnpm lint:fix`: 对 `packages/*` 应用 ESLint 自动修复。
-* `pnpm typecheck`: 对 `packages/*` 运行 `tsc --noEmit`。
+* `pnpm lint`: 对有 `lint` 脚本的 `packages/*` 并行运行 ESLint。
+* `pnpm lint:fix`: 对有 `lint:fix` 脚本的 `packages/*` 并行应用 ESLint 自动修复。
+* `pnpm typecheck`: 先构建 core 的 `dist`，再并行运行 core/MCP 的 `tsc --noEmit`。
+* `pnpm test`: 先构建 core 的 `dist`，再并行运行 core/MCP 测试。
+* `pnpm test:packages`: 仅并行运行 core/MCP 测试；调用前必须确保 `packages/core/dist` 已经是当前版本。
 * `pnpm --filter @hitmux/hitmux-context-engine-core test`: 运行 core 的 Jest 测试。
 * `pnpm --filter @hitmux/hitmux-context-engine-mcp test`: 运行 MCP 的 Node test 测试。
 * `pnpm example:basic`: 启动 basic example。
@@ -59,9 +63,10 @@
 * 测试文件放在被测代码旁边，命名为 `*.test.ts`。
 * core 使用 Jest 和 `ts-jest`，配置在 `packages/core/jest.config.cjs`。
 * MCP 使用 Node 内置 test runner，通过 `node --import tsx --test "src/**/*.test.ts"` 运行。
+* 能并行的验证尽量并行，不能并行的共享产物阶段必须串行。`packages/core/dist` 是 MCP 测试和运行时会消费的共享产物；不要把会清理或重建 core `dist` 的命令与 MCP 测试并行。
 * 修改 core 的索引、ignore、splitter、embedding、向量库或搜索逻辑时，至少运行 core 测试；如果 public types 或构建输出会受影响，再运行 `pnpm build:core` 或 `pnpm typecheck`。
 * 修改 MCP 的配置解析、tool args、handler、snapshot、sync、path resolution 或 server 入口时，至少运行 MCP 测试；如果改动依赖 core 的导出，先运行 `pnpm build:core` 再验证 MCP。
-* 修改跨包 API、workspace 配置或依赖时，运行 `pnpm typecheck`，必要时再运行 `pnpm build`。
+* 修改跨包 API、workspace 配置或依赖时，运行 `pnpm typecheck`，必要时再运行 `pnpm test` 和 `pnpm build`。
 * 修改 docs/examples 时，验证对应文档中的命令仍存在；修改 example 时运行 `pnpm build:examples` 或 `pnpm example:basic` 中最贴近的命令。
 * 如果验证不能执行或依赖外部服务/API key，报告 `not verified`，并说明缺少的条件。
 
@@ -81,7 +86,7 @@
 
 ## 发布与构建产物
 
-* `release:core` 和 `release:mcp` 会构建并执行 npm publish，只有用户明确要求发布时才运行。
+* `release:core` 会先构建 core 再执行 npm publish；`release:mcp` 通过 MCP 包的 `prepublishOnly` 触发 `pnpm -w build:mcp` 后执行 npm publish。只有用户明确要求发布时才运行 release 脚本。
 * 构建产物位于 `packages/core/dist`、`packages/mcp/dist` 和 `examples/basic-usage/dist`。完成报告只有在任务产生或更新构建产物时才列出绝对路径。
 * 不要把 generated artifacts 当作源码修复入口；源码在 `src/`。
 
