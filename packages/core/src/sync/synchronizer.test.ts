@@ -57,6 +57,23 @@ describe('FileSynchronizer snapshot safety', () => {
         });
     });
 
+    it('writes snapshots to the configured snapshotBaseDir', async () => {
+        const project = path.join(tempRoot, 'project-custom-snapshot-dir');
+        const snapshotBaseDir = path.join(tempRoot, 'custom-merkle');
+        await fs.mkdir(project);
+        await fs.writeFile(path.join(project, 'index.ts'), 'const value = 1;');
+
+        const synchronizer = new FileSynchronizer(project, [], ['.ts'], { snapshotBaseDir });
+        await synchronizer.initialize();
+
+        const customSnapshots = await fs.readdir(snapshotBaseDir);
+        await expect(fs.readdir(path.join(homeDir, '.hitmux-context-engine', 'merkle'))).rejects.toMatchObject({
+            code: 'ENOENT'
+        });
+        expect(customSnapshots).toHaveLength(1);
+        expect(customSnapshots[0]).toMatch(/\.json$/);
+    });
+
     it('reuses mtime and size metadata instead of reading unchanged files during sync checks', async () => {
         const project = path.join(tempRoot, 'project-metadata');
         await fs.mkdir(project);
@@ -65,16 +82,16 @@ describe('FileSynchronizer snapshot safety', () => {
         const synchronizer = new FileSynchronizer(project, [], ['.ts']);
         await synchronizer.initialize();
 
-        const hashFileSpy = jest.spyOn(synchronizer as any, 'hashFile');
+        const readFileSnapshotStateSpy = jest.spyOn(synchronizer as any, 'readFileSnapshotState');
 
         await expect(synchronizer.checkForChanges()).resolves.toEqual({
             added: [],
             removed: [],
             modified: []
         });
-        expect(hashFileSpy).not.toHaveBeenCalled();
+        expect(readFileSnapshotStateSpy).not.toHaveBeenCalled();
 
-        hashFileSpy.mockRestore();
+        readFileSnapshotStateSpy.mockRestore();
     });
 
     it('limits sync traversal by maxDepth', async () => {

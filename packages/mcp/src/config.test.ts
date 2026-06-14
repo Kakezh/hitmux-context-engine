@@ -89,6 +89,7 @@ test("ensureGlobalConfigFile creates a commented default global config", async (
         assert.match(content, /milvusAddress = localhost:19530/);
         assert.match(content, /embeddingUseSystemProxy = false/);
         assert.match(content, /databaseUseSystemProxy = false/);
+        assert.match(content, /# automaticIncrementalEffectiveLineLimit = 10000/);
 
         const secondResult = configManager.ensureGlobalConfigFile();
         assert.deepEqual(secondResult, {
@@ -100,14 +101,17 @@ test("ensureGlobalConfigFile creates a commented default global config", async (
     });
 });
 
-test("ensureGlobalConfigFile completes missing fields in an existing config as comments", async () => {
+test("ensureGlobalConfigFile completes existing config using the default template format", async () => {
     await withTempConfig({}, async () => {
         const configPath = configManager.getGlobalConfigFilePath();
         await mkdir(path.dirname(configPath), { recursive: true });
         await writeFile(configPath, [
             "# existing config",
-            "embeddingProvider = OpenAI",
-            "# milvusAddress = localhost:19530",
+            "embeddingProvider = OpenAI # keep inline comment",
+            "# milvusAddress = remote.example:19530",
+            "customExtensions = .vue",
+            "customExtensions = .svelte",
+            "futureOption = keep-me",
             ""
         ].join("\n"), "utf-8");
 
@@ -120,11 +124,15 @@ test("ensureGlobalConfigFile completes missing fields in an existing config as c
         assert.ok(result.appendedKeys.includes("openrouterApiKey"));
         assert.ok(!result.appendedKeys.includes("embeddingProvider"));
         assert.ok(!result.appendedKeys.includes("milvusAddress"));
-        assert.match(content, /# Missing optional fields added as comments\./);
-        assert.match(content, /# Embedding model name for the selected provider\.\n# embeddingModel = qwen\/qwen3-embedding-4b/);
-        assert.match(content, /# OpenRouter API key when embeddingProvider = OpenRouter\.\n# openrouterApiKey = sk-or-your-openrouter-api-key/);
-        assert.doesNotMatch(content, /# Embedding provider: OpenAI, VoyageAI, Gemini, Ollama, or OpenRouter\.\n# embeddingProvider = OpenRouter/);
-        assert.doesNotMatch(content, /# Milvus or Zilliz Cloud public endpoint\.\n# milvusAddress = localhost:19530/);
+        assert.ok(!result.appendedKeys.includes("customExtensions"));
+        assert.doesNotMatch(content, /# Missing optional fields added as comments\./);
+        assert.match(content, /# Hitmux Context Engine global configuration\./);
+        assert.match(content, /# Default embedding provider\.\nembeddingProvider = OpenAI # keep inline comment\nembeddingModel = qwen\/qwen3-embedding-4b/);
+        assert.match(content, /# Local Milvus default\. Change this for remote Milvus or Zilliz Cloud\.\n# milvusAddress = remote\.example:19530\n# milvusToken = your-milvus-or-zilliz-token/);
+        assert.match(content, /embeddingModel = qwen\/qwen3-embedding-4b\n# openrouterApiKey = sk-or-your-openrouter-api-key/);
+        assert.match(content, /# Effective-line growth limit before automatic incremental sync pauses for manual review\.\n# automaticIncrementalEffectiveLineLimit = 10000/);
+        assert.match(content, /# Additional file extensions to index; repeat the field for multiple values\.\ncustomExtensions = \.vue\ncustomExtensions = \.svelte/);
+        assert.match(content, /# Existing fields not present in the current default template\.\nfutureOption = keep-me/);
 
         const secondResult = configManager.ensureGlobalConfigFile();
         assert.equal(secondResult.updated, false);

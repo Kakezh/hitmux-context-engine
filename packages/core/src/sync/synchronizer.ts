@@ -6,11 +6,13 @@ import * as os from 'os';
 import { normalizeCodebaseIdentityPath } from '../utils/path-identity';
 import { IgnoreMatcher } from '../utils/ignore-matcher';
 import { configManager } from '../utils/config-manager';
+import { countEffectiveLinesInContent } from '../utils/effective-lines';
 
 interface FileSnapshotState {
     hash: string;
     mtimeMs?: number;
     size?: number;
+    effectiveLines?: number;
 }
 
 export interface FileSynchronizerOptions {
@@ -51,6 +53,7 @@ export class FileSynchronizer {
 
     constructor(rootDir: string, ignorePatterns: string[] = [], supportedExtensions: string[] = [], options: FileSynchronizerOptions = {}) {
         this.rootDir = rootDir;
+        this.snapshotBaseDir = options.snapshotBaseDir;
         this.snapshotPath = this.getSnapshotPath(rootDir);
         this.fileHashes = new Map();
         this.fileStates = new Map();
@@ -59,7 +62,6 @@ export class FileSynchronizer {
         this.supportedExtensions = this.normalizeExtensions(supportedExtensions);
         this.maxDepth = this.normalizeMaxDepth(options.maxDepth);
         this.maxSnapshotBytes = this.normalizePositiveInteger(options.maxSnapshotBytes);
-        this.snapshotBaseDir = options.snapshotBaseDir;
     }
 
     private getSnapshotPath(codebasePath: string): string {
@@ -71,14 +73,19 @@ export class FileSynchronizer {
         return path.join(merkleDir, `${hash}.json`);
     }
 
-    private async hashFile(filePath: string): Promise<string> {
+    private async readFileSnapshotState(filePath: string, stat: { mtimeMs: number; size: number }): Promise<FileSnapshotState> {
         // Double-check that this is actually a file, not a directory
-        const stat = await fs.stat(filePath);
-        if (stat.isDirectory()) {
+        const currentStat = await fs.stat(filePath);
+        if (currentStat.isDirectory()) {
             throw new Error(`Attempted to hash a directory: ${filePath}`);
         }
         const content = await fs.readFile(filePath, 'utf-8');
-        return crypto.createHash('sha256').update(content).digest('hex');
+        return {
+            hash: crypto.createHash('sha256').update(content).digest('hex'),
+            mtimeMs: stat.mtimeMs,
+            size: stat.size,
+            effectiveLines: countEffectiveLinesInContent(content)
+        };
     }
 
     private async generateFileHashes(dir: string, depth: number = 0): Promise<Map<string, string>> {
@@ -135,14 +142,13 @@ export class FileSynchronizer {
                         const previousState = this.fileStates.get(relativePath);
                         const canReuseHash = previousState &&
                             previousState.mtimeMs === stat.mtimeMs &&
-                            previousState.size === stat.size;
-                        const hash = canReuseHash ? previousState.hash : await this.hashFile(fullPath);
-                        fileHashes.set(relativePath, hash);
-                        fileStates.set(relativePath, {
-                            hash,
-                            mtimeMs: stat.mtimeMs,
-                            size: stat.size
-                        });
+                            previousState.size === stat.size &&
+                            previousState.effectiveLines !== undefined;
+                        const fileState = canReuseHash
+                            ? previousState
+                            : await this.readFileSnapshotState(fullPath, stat);
+                        fileHashes.set(relativePath, fileState.hash);
+                        fileStates.set(relativePath, fileState);
                     } catch (error: any) {
                         console.warn(`[Synchronizer] Cannot hash file ${fullPath}: ${error.message}`);
                         continue;
@@ -291,6 +297,36 @@ export class FileSynchronizer {
         this.pendingSnapshotUpdate = null;
     }
 
+    public getPendingEffectiveLineIncrease(added: string[], modified: string[]): { effectiveLines: number; changedFiles: number } {
+        const newStates = this.pendingSnapshotUpdate?.fileStates || this.fileStates;
+        let effectiveLines = 0;
+        let changedFiles = 0;
+
+        for (const file of added) {
+            const lines = newStates.get(file)?.effectiveLines || 0;
+            if (lines > 0) {
+                effectiveLines += lines;
+                changedFiles++;
+            }
+        }
+
+        for (const file of modified) {
+            const oldLines = this.fileStates.get(file)?.effectiveLines;
+            const newLines = newStates.get(file)?.effectiveLines;
+            if (oldLines === undefined || newLines === undefined) {
+                continue;
+            }
+
+            const increase = Math.max(newLines - oldLines, 0);
+            if (increase > 0) {
+                effectiveLines += increase;
+                changedFiles++;
+            }
+        }
+
+        return { effectiveLines, changedFiles };
+    }
+
     private fileStatesEqual(a: Map<string, FileSnapshotState>, b: Map<string, FileSnapshotState>): boolean {
         if (a.size !== b.size) {
             return false;
@@ -301,7 +337,8 @@ export class FileSynchronizer {
             if (!other ||
                 other.hash !== state.hash ||
                 other.mtimeMs !== state.mtimeMs ||
-                other.size !== state.size) {
+                other.size !== state.size ||
+                other.effectiveLines !== state.effectiveLines) {
                 return false;
             }
         }

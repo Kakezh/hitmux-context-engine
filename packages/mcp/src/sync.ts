@@ -5,11 +5,20 @@ import { Context, FileSynchronizer, IncrementalIndexTooLargeError, configManager
 import { SnapshotManager } from "./snapshot.js";
 import type { RequestSplitterType } from "./config.js";
 import { createRequestSplitter, resolveRequestSplitterType } from "./splitter.js";
+import { queryCollectionStats } from "./collection-stats.js";
 
 const DEFAULT_INITIAL_SYNC_DELAY_MS = 5_000;
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_SYNC_INTERVAL_MS = 1_000;
 const DEFAULT_SYNC_LOCK_STALE_MS = 10 * 60 * 1000;
+
+interface GlobalSyncLockOwner {
+    pid?: number;
+    token?: string;
+    acquiredAt?: string;
+    heartbeatAt?: string;
+    recoveredStaleLock?: boolean;
+}
 
 function isBackgroundSyncEnabled(): boolean {
     return configManager.getBoolean("backgroundSync") ?? true;
@@ -36,16 +45,28 @@ function getBackgroundSyncIntervalMs(): number {
     return Math.floor(intervalMs);
 }
 
+export interface CodebaseSyncStatus {
+    codebasePath: string;
+    phase: string;
+    current: number;
+    total: number;
+    percentage: number;
+    startedAtMs: number;
+    updatedAtMs: number;
+}
+
 export class SyncManager {
     private context: Context;
     private snapshotManager: SnapshotManager;
     private isSyncing: boolean = false;
     private syncLockToken: string | null = null;
+    private syncLockHeartbeatTimer: NodeJS.Timeout | null = null;
     private triggerWatcher: fs.FSWatcher | null = null;
     private triggerDebounceTimer: NodeJS.Timeout | null = null;
     private backgroundSyncTimer: NodeJS.Timeout | null = null;
     private backgroundSyncIntervalMs: number | null = null;
     private backgroundSyncEnabled: boolean = false;
+    private syncStatuses: Map<string, CodebaseSyncStatus> = new Map();
 
     constructor(context: Context, snapshotManager: SnapshotManager) {
         this.context = context;
@@ -78,11 +99,11 @@ export class SyncManager {
 
         try {
             fs.mkdirSync(lockPath);
-            fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+            this.writeGlobalSyncLockOwner(lockPath, {
                 pid: process.pid,
                 token,
                 acquiredAt: new Date().toISOString()
-            }, null, 2));
+            });
             this.syncLockToken = token;
             console.log(`[SYNC-DEBUG] Acquired global sync lock: ${lockPath}`);
             return true;
@@ -93,19 +114,19 @@ export class SyncManager {
             }
 
             try {
-                const stat = fs.statSync(lockPath);
-                if (Date.now() - stat.mtimeMs > staleMs) {
+                const lastOwnerUpdateMs = this.getGlobalSyncLockLastUpdateMs(lockPath);
+                if (Date.now() - lastOwnerUpdateMs > staleMs) {
                     const stalePath = `${lockPath}.stale-${process.pid}-${Date.now()}`;
                     console.warn(`[SYNC-DEBUG] Reclaiming stale global sync lock: ${lockPath}`);
                     fs.renameSync(lockPath, stalePath);
                     fs.rmSync(stalePath, { recursive: true, force: true });
                     fs.mkdirSync(lockPath);
-                    fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+                    this.writeGlobalSyncLockOwner(lockPath, {
                         pid: process.pid,
                         token,
                         acquiredAt: new Date().toISOString(),
                         recoveredStaleLock: true
-                    }, null, 2));
+                    });
                     this.syncLockToken = token;
                     console.log(`[SYNC-DEBUG] Acquired global sync lock after stale cleanup: ${lockPath}`);
                     return true;
@@ -119,14 +140,80 @@ export class SyncManager {
         }
     }
 
+    private readGlobalSyncLockOwner(lockPath: string): GlobalSyncLockOwner | undefined {
+        try {
+            const ownerPath = path.join(lockPath, "owner.json");
+            return JSON.parse(fs.readFileSync(ownerPath, "utf8")) as GlobalSyncLockOwner;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private writeGlobalSyncLockOwner(lockPath: string, owner: GlobalSyncLockOwner): void {
+        const now = new Date();
+        const heartbeatAt = now.toISOString();
+        fs.writeFileSync(path.join(lockPath, "owner.json"), JSON.stringify({
+            ...owner,
+            heartbeatAt
+        }, null, 2));
+        fs.utimesSync(lockPath, now, now);
+    }
+
+    private getGlobalSyncLockLastUpdateMs(lockPath: string): number {
+        const owner = this.readGlobalSyncLockOwner(lockPath);
+        const heartbeatMs = owner?.heartbeatAt ? Date.parse(owner.heartbeatAt) : NaN;
+        if (Number.isFinite(heartbeatMs)) {
+            return heartbeatMs;
+        }
+
+        const acquiredMs = owner?.acquiredAt ? Date.parse(owner.acquiredAt) : NaN;
+        if (Number.isFinite(acquiredMs)) {
+            return acquiredMs;
+        }
+
+        return fs.statSync(lockPath).mtimeMs;
+    }
+
+    private startGlobalSyncLockHeartbeat(): void {
+        if (!this.syncLockToken || this.syncLockHeartbeatTimer) {
+            return;
+        }
+
+        const lockPath = this.getSyncLockPath();
+        const intervalMs = Math.max(1, Math.min(Math.floor(this.getSyncLockStaleMs() / 3), 30_000));
+        this.syncLockHeartbeatTimer = setInterval(() => {
+            const owner = this.readGlobalSyncLockOwner(lockPath);
+            if (!owner?.token || owner.token !== this.syncLockToken) {
+                this.stopGlobalSyncLockHeartbeat();
+                return;
+            }
+
+            try {
+                this.writeGlobalSyncLockOwner(lockPath, owner);
+            } catch (error: any) {
+                console.warn(`[SYNC-DEBUG] Failed to heartbeat global sync lock: ${error?.message || String(error)}`);
+            }
+        }, intervalMs);
+        this.syncLockHeartbeatTimer.unref?.();
+    }
+
+    private stopGlobalSyncLockHeartbeat(): void {
+        if (this.syncLockHeartbeatTimer) {
+            clearInterval(this.syncLockHeartbeatTimer);
+            this.syncLockHeartbeatTimer = null;
+        }
+    }
+
     private releaseGlobalSyncLock(): void {
         const lockPath = this.getSyncLockPath();
         try {
+            this.stopGlobalSyncLockHeartbeat();
             const ownerPath = path.join(lockPath, "owner.json");
             if (this.syncLockToken && fs.existsSync(ownerPath)) {
                 const owner = JSON.parse(fs.readFileSync(ownerPath, "utf8"));
                 if (owner.token && owner.token !== this.syncLockToken) {
                     console.warn(`[SYNC-DEBUG] Global sync lock is owned by another process. Skipping release: ${lockPath}`);
+                    this.syncLockToken = null;
                     return;
                 }
             }
@@ -135,7 +222,35 @@ export class SyncManager {
             console.log(`[SYNC-DEBUG] Released global sync lock: ${lockPath}`);
         } catch (error: any) {
             console.warn(`[SYNC-DEBUG] Failed to release global sync lock: ${error?.message || String(error)}`);
+            this.syncLockToken = null;
         }
+    }
+
+    public getSyncStatus(codebasePath: string): CodebaseSyncStatus | undefined {
+        const status = this.syncStatuses.get(codebasePath);
+        return status ? { ...status } : undefined;
+    }
+
+    private setCodebaseSyncStatus(codebasePath: string, status: Omit<CodebaseSyncStatus, "codebasePath">): void {
+        this.syncStatuses.set(codebasePath, {
+            codebasePath,
+            ...status
+        });
+    }
+
+    private updateCodebaseSyncProgress(
+        codebasePath: string,
+        startedAtMs: number,
+        progress: { phase: string; current: number; total: number; percentage: number }
+    ): void {
+        this.setCodebaseSyncStatus(codebasePath, {
+            phase: progress.phase,
+            current: progress.current,
+            total: progress.total,
+            percentage: progress.percentage,
+            startedAtMs,
+            updatedAtMs: Date.now()
+        });
     }
 
     public async handleSyncIndex(): Promise<void> {
@@ -166,10 +281,21 @@ export class SyncManager {
         }
 
         this.isSyncing = true;
+        this.startGlobalSyncLockHeartbeat();
         console.log(`[SYNC-DEBUG] Starting index sync for all ${indexedCodebases.length} codebases...`);
 
         try {
             let totalStats = { added: 0, removed: 0, modified: 0 };
+            for (let i = 0; i < indexedCodebases.length; i++) {
+                this.setCodebaseSyncStatus(indexedCodebases[i], {
+                    phase: "Waiting for automatic sync...",
+                    current: i,
+                    total: indexedCodebases.length,
+                    percentage: 0,
+                    startedAtMs: syncStartTime,
+                    updatedAtMs: Date.now()
+                });
+            }
 
             for (let i = 0; i < indexedCodebases.length; i++) {
                 const codebasePath = indexedCodebases[i];
@@ -193,6 +319,14 @@ export class SyncManager {
 
                 try {
                     console.log(`[SYNC-DEBUG] Calling context.reindexByChange() for '${codebasePath}'`);
+                    this.setCodebaseSyncStatus(codebasePath, {
+                        phase: "Checking for file changes...",
+                        current: 0,
+                        total: 100,
+                        percentage: 0,
+                        startedAtMs: codebaseStartTime,
+                        updatedAtMs: Date.now()
+                    });
                     const codebaseInfo = this.snapshotManager.getCodebaseInfo(codebasePath);
                     const requestSplitterType: RequestSplitterType = resolveRequestSplitterType(codebaseInfo?.requestSplitter);
                     const requestIgnorePatterns = codebaseInfo?.requestIgnorePatterns || [];
@@ -201,7 +335,7 @@ export class SyncManager {
                     const requestMaxDepth = codebaseInfo?.requestMaxDepth;
                     const stats = await this.context.reindexByChange(
                         codebasePath,
-                        undefined,
+                        (progress) => this.updateCodebaseSyncProgress(codebasePath, codebaseStartTime, progress),
                         requestIgnorePatterns,
                         requestCustomExtensions,
                         createRequestSplitter(requestSplitterType),
@@ -212,23 +346,34 @@ export class SyncManager {
 
                     console.log(`[SYNC-DEBUG] Reindex stats for '${codebasePath}':`, stats);
                     console.log(`[SYNC-DEBUG] Codebase sync completed in ${codebaseElapsed}ms`);
-                    const previousInfo = this.snapshotManager.getCodebaseInfo(codebasePath);
-                    const hadSyncWarning = previousInfo?.status === 'indexed' && typeof previousInfo.syncWarning === 'string';
-                    this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
-                    if (hadSyncWarning) {
-                        this.snapshotManager.saveCodebaseSnapshot();
-                    }
-
                     // Accumulate total stats
                     totalStats.added += stats.added;
                     totalStats.removed += stats.removed;
                     totalStats.modified += stats.modified;
 
                     if (stats.added > 0 || stats.removed > 0 || stats.modified > 0) {
+                        const collectionStats = await queryCollectionStats(this.context, codebasePath, "SYNC-STATS");
+                        if (collectionStats) {
+                            this.snapshotManager.setCodebaseIndexed(codebasePath, {
+                                ...collectionStats,
+                                status: 'completed'
+                            });
+                            this.snapshotManager.saveCodebaseSnapshot();
+                        } else {
+                            this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
+                            this.snapshotManager.saveCodebaseSnapshot();
+                        }
                         console.log(`[SYNC] Sync complete for '${codebasePath}'. Added: ${stats.added}, Removed: ${stats.removed}, Modified: ${stats.modified} (${codebaseElapsed}ms)`);
                     } else {
+                        const previousInfo = this.snapshotManager.getCodebaseInfo(codebasePath);
+                        const hadSyncWarning = previousInfo?.status === 'indexed' && typeof previousInfo.syncWarning === 'string';
+                        this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
+                        if (hadSyncWarning) {
+                            this.snapshotManager.saveCodebaseSnapshot();
+                        }
                         console.log(`[SYNC] No changes detected for '${codebasePath}' (${codebaseElapsed}ms)`);
                     }
+                    this.syncStatuses.delete(codebasePath);
                 } catch (error: any) {
                     const codebaseElapsed = Date.now() - codebaseStartTime;
                     if (error instanceof IncrementalIndexTooLargeError) {
@@ -236,6 +381,7 @@ export class SyncManager {
                         console.warn(`[SYNC] ${warning}`);
                         this.snapshotManager.setCodebaseSyncWarning(codebasePath, warning);
                         this.snapshotManager.saveCodebaseSnapshot();
+                        this.syncStatuses.delete(codebasePath);
                         continue;
                     }
 
@@ -256,6 +402,7 @@ export class SyncManager {
                     }
 
                     // Continue with next codebase even if one fails
+                    this.syncStatuses.delete(codebasePath);
                 }
             }
 
@@ -269,6 +416,7 @@ export class SyncManager {
             console.error(`[SYNC-DEBUG] Error stack:`, error.stack);
         } finally {
             this.isSyncing = false;
+            this.syncStatuses.clear();
             this.releaseGlobalSyncLock();
             const totalElapsed = Date.now() - syncStartTime;
             console.log(`[SYNC-DEBUG] handleSyncIndex() finished at ${new Date().toISOString()}, total duration: ${totalElapsed}ms`);

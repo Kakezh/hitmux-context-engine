@@ -8,6 +8,8 @@ import { getBooleanFromConfig, type CodebaseIndexOptions, type CodebaseInfoIndex
 import { createRequestSplitter, isRequestSplitterType, resolveRequestSplitterType } from "./splitter.js";
 import { analyzeFilenameLikeQuery, formatFilenameQueryNotice, searchResultsAreFallbackMatches } from "./search-filename-query.js";
 import { ensureAbsolutePath, truncateContent, trackCodebasePath } from "./utils.js";
+import { queryCollectionStats } from "./collection-stats.js";
+import type { CodebaseSyncStatus, SyncManager } from "./sync.js";
 
 const DEFAULT_SEARCH_RESULT_LIMIT = 20;
 const SOURCE_CONTEXT_WINDOW_LINES = 4;
@@ -50,10 +52,12 @@ export class ToolHandlers {
     private indexingTasks: Map<string, { controller: AbortController; promise: Promise<void> }> = new Map();
     private indexingStateLocks: Map<string, Promise<void>> = new Map();
     private vectorDatabaseSyncTimeoutMs: number;
+    private syncManager?: Pick<SyncManager, "getSyncStatus">;
 
-    constructor(context: Context, snapshotManager: SnapshotManager) {
+    constructor(context: Context, snapshotManager: SnapshotManager, syncManager?: Pick<SyncManager, "getSyncStatus">) {
         this.context = context;
         this.snapshotManager = snapshotManager;
+        this.syncManager = syncManager;
         this.currentWorkspace = process.cwd();
         this.vectorDatabaseSyncTimeoutMs = getVectorDatabaseSyncTimeoutMs();
         console.log(`[WORKSPACE] Current workspace: ${this.currentWorkspace}`);
@@ -71,6 +75,41 @@ export class ToolHandlers {
 
     private notIndexedResponse(absolutePath: string) {
         return this.errorResponse(`Error: Codebase '${absolutePath}' is not indexed. ${NOT_INDEXED_INDEXING_HINT}`);
+    }
+
+    public setSyncManager(syncManager: Pick<SyncManager, "getSyncStatus">): void {
+        this.syncManager = syncManager;
+    }
+
+    private formatElapsedMs(elapsedMs: number): string {
+        if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+            return "unknown";
+        }
+        if (elapsedMs < 1000) {
+            return `${Math.round(elapsedMs)}ms`;
+        }
+        if (elapsedMs < 60_000) {
+            return `${(elapsedMs / 1000).toFixed(1)}s`;
+        }
+        const minutes = Math.floor(elapsedMs / 60_000);
+        const seconds = Math.floor((elapsedMs % 60_000) / 1000);
+        return `${minutes}m ${seconds}s`;
+    }
+
+    private formatSyncStatus(status: CodebaseSyncStatus): string {
+        const elapsed = this.formatElapsedMs(Date.now() - status.startedAtMs);
+        const progress = Number.isFinite(status.percentage)
+            ? `${Math.max(0, Math.min(100, status.percentage)).toFixed(1)}%`
+            : "unknown";
+        const step = status.total > 0
+            ? ` (${status.current}/${status.total})`
+            : "";
+        return `🔄 Automatic sync in progress for '${status.codebasePath}'. Elapsed: ${elapsed}. Progress: ${progress}${step}. Phase: ${status.phase}. Please wait for sync to finish before relying on freshly changed or newly ignored files.`;
+    }
+
+    private getSyncStatusMessage(codebasePath: string): string {
+        const status = this.syncManager?.getSyncStatus(codebasePath);
+        return status ? this.formatSyncStatus(status) : "";
     }
 
     private validateRequiredStringArgs(toolName: string, args: any, fields: string[]): { error: ReturnType<ToolHandlers["errorResponse"]> | null } {
@@ -172,6 +211,32 @@ export class ToolHandlers {
         };
     }
 
+    private normalizeOptionalExtensionFilter(value: unknown): { extensions?: string[]; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (!Array.isArray(value)) {
+            return {
+                error: this.errorResponse("Error: search_code argument 'extensionFilter' must be an array of file extensions when provided.")
+            };
+        }
+
+        const cleaned = value
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0);
+        const invalid = value.filter((item) => typeof item !== "string" || !/^\.[A-Za-z0-9][A-Za-z0-9_+-]*$/.test(item.trim()));
+
+        if (invalid.length > 0) {
+            return {
+                error: this.errorResponse(`Error: Invalid file extensions in extensionFilter: ${JSON.stringify(invalid)}. Use simple extensions like '.ts', '.tsx', '.py'.`)
+            };
+        }
+
+        return { extensions: cleaned };
+    }
+
     private normalizeOptionalTraceNumber(toolName: string, field: string, value: unknown): { value?: number; error?: ReturnType<ToolHandlers["errorResponse"]> } {
         if (value === undefined || value === null) {
             return {};
@@ -198,6 +263,34 @@ export class ToolHandlers {
         }
 
         return { value };
+    }
+
+    private normalizeOptionalBooleanArg(toolName: string, field: string, value: unknown): { value?: boolean; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (typeof value !== "boolean") {
+            return {
+                error: this.errorResponse(`Error: ${toolName} argument '${field}' must be a boolean when provided.`)
+            };
+        }
+
+        return { value };
+    }
+
+    private normalizeOptionalNonNegativeIntegerArg(toolName: string, field: string, value: unknown): { value?: number; error?: ReturnType<ToolHandlers["errorResponse"]> } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+            return {
+                error: this.errorResponse(`Error: ${toolName} argument '${field}' must be a non-negative number when provided.`)
+            };
+        }
+
+        return { value: Math.floor(value) };
     }
 
     private formatSearchResultLocation(result: any): { location: string; warning?: string } {
@@ -552,12 +645,36 @@ export class ToolHandlers {
         return resolvedPath;
     }
 
-    private async resolveSearchResultLimit(explicitLimit: number | undefined, _codebasePath: string): Promise<number> {
+    private async resolveSearchResultLimit(explicitLimit: number | undefined, codebasePath: string): Promise<number> {
         if (explicitLimit !== undefined) {
             return explicitLimit;
         }
 
+        const configuredLimit = configManager.getNumber("searchTopK", codebasePath);
+        if (configuredLimit !== undefined) {
+            if (Number.isInteger(configuredLimit) && configuredLimit > 0) {
+                return configuredLimit;
+            }
+
+            console.warn(`[SEARCH] Ignoring invalid config.searchTopK value '${configuredLimit}'. Falling back to ${DEFAULT_SEARCH_RESULT_LIMIT}.`);
+        }
+
         return DEFAULT_SEARCH_RESULT_LIMIT;
+    }
+
+    private resolveSearchThreshold(codebasePath: string): number {
+        const defaultThreshold = 0.3;
+        const configuredThreshold = configManager.getNumber("searchThreshold", codebasePath);
+        if (configuredThreshold === undefined) {
+            return defaultThreshold;
+        }
+
+        if (Number.isFinite(configuredThreshold) && configuredThreshold >= 0) {
+            return configuredThreshold;
+        }
+
+        console.warn(`[SEARCH] Ignoring invalid config.searchThreshold value '${configuredThreshold}'. Falling back to ${defaultThreshold}.`);
+        return defaultThreshold;
     }
 
     private isInteractiveIndexingEnabled(): boolean {
@@ -593,46 +710,8 @@ export class ToolHandlers {
      * the client treats 0/0 as "not indexed" and triggers force reindex, which
      * deletes real data and rewrites 0/0 — an infinite loop. See Issue #295.
      */
-    private async queryIndexedFileCount(collectionName: string, rowCount: number): Promise<number | undefined> {
-        try {
-            const rows = await this.context.getVectorDatabase().query(collectionName, '', ['relativePath'], rowCount);
-            const filePaths = new Set<string>();
-
-            for (const row of rows) {
-                if (typeof row.relativePath === 'string' && row.relativePath.length > 0) {
-                    filePaths.add(row.relativePath);
-                }
-            }
-
-            if (filePaths.size > 0) {
-                return filePaths.size;
-            }
-        } catch (error) {
-            console.warn(`[SNAPSHOT-RECOVERY] Failed to query distinct indexed files for '${collectionName}':`, error);
-        }
-
-        return undefined;
-    }
-
     private async queryCollectionStats(codebasePath: string): Promise<{ indexedFiles: number; totalChunks: number; statsSource: 'collection_row_count' } | null> {
-        try {
-            const collectionName = this.context.getCollectionName(codebasePath);
-            const rowCount = await this.context.getVectorDatabase().getCollectionRowCount(collectionName);
-            if (rowCount < 0) {
-                console.warn(`[SNAPSHOT-RECOVERY] Row count unknown for '${codebasePath}', skipping recovery write`);
-                return null;
-            }
-            if (rowCount === 0) {
-                console.warn(`[SNAPSHOT-RECOVERY] Collection '${collectionName}' truly empty — NOT writing recovered entry (would poison client)`);
-                return null;
-            }
-
-            const indexedFiles = await this.queryIndexedFileCount(collectionName, rowCount);
-            return { indexedFiles: indexedFiles ?? 0, totalChunks: rowCount, statsSource: 'collection_row_count' };
-        } catch (error) {
-            console.warn(`[SNAPSHOT-RECOVERY] Failed to query stats for '${codebasePath}':`, error);
-            return null;
-        }
+        return queryCollectionStats(this.context, codebasePath);
     }
 
     private getMerkleTrackedFileCount(codebasePath: string): number | undefined {
@@ -729,7 +808,10 @@ export class ToolHandlers {
                 // so we don't destroy real state on a network blip.
                 let collectionExists: boolean;
                 try {
-                    collectionExists = await vdb.hasCollection(collectionName);
+                    collectionExists = await this.withVectorDatabaseSyncTimeout(
+                        `snapshot validation hasCollection(${collectionName})`,
+                        vdb.hasCollection(collectionName)
+                    );
                 } catch (err) {
                     console.warn(`[SNAPSHOT-VALIDATE] hasCollection failed for '${codebasePath}' (likely transient), skipping:`, err);
                     skipped++;
@@ -748,7 +830,10 @@ export class ToolHandlers {
                 // Collection exists — get an accurate row count.
                 let rowCount: number;
                 try {
-                    rowCount = await vdb.getCollectionRowCount(collectionName);
+                    rowCount = await this.withVectorDatabaseSyncTimeout(
+                        `snapshot validation getCollectionRowCount(${collectionName})`,
+                        vdb.getCollectionRowCount(collectionName)
+                    );
                 } catch (err) {
                     console.warn(`[SNAPSHOT-VALIDATE] getCollectionRowCount failed for '${codebasePath}', skipping:`, err);
                     skipped++;
@@ -756,12 +841,12 @@ export class ToolHandlers {
                 }
 
                 if (rowCount > 0) {
-                    const indexedFiles = await this.queryIndexedFileCount(collectionName, rowCount);
+                    const stats = await this.queryCollectionStats(codebasePath);
                     this.snapshotManager.setCodebaseIndexed(codebasePath, {
-                        indexedFiles: indexedFiles ?? 0,
-                        totalChunks: rowCount,
+                        indexedFiles: stats?.indexedFiles ?? 0,
+                        totalChunks: stats?.totalChunks ?? rowCount,
                         status: 'completed' as const,
-                        statsSource: 'collection_row_count' as const,
+                        statsSource: stats?.statsSource ?? 'collection_row_count' as const,
                     });
                     healed++;
                     console.log(`[SNAPSHOT-VALIDATE] Healed legacy 0/0 entry '${codebasePath}' → rows=${rowCount}`);
@@ -807,7 +892,10 @@ export class ToolHandlers {
                 let collectionExists: boolean;
 
                 try {
-                    collectionExists = await this.context.getVectorDatabase().hasCollection(collectionName);
+                    collectionExists = await this.withVectorDatabaseSyncTimeout(
+                        `snapshot reconciliation hasCollection(${collectionName})`,
+                        this.context.getVectorDatabase().hasCollection(collectionName)
+                    );
                 } catch (error) {
                     skipped++;
                     console.warn(`[SNAPSHOT-RECONCILE] hasCollection failed for '${codebasePath}' (leaving snapshot entry unchanged):`, error);
@@ -1026,47 +1114,57 @@ export class ToolHandlers {
         }
 
         const { path: codebasePath, force, splitter, maxDepth, dryRun, incremental } = args;
-        const forceReindex = force || false;
-        const incrementalIndex = incremental === true;
+        const normalizedForce = this.normalizeOptionalBooleanArg("index_codebase", "force", force);
+        if (normalizedForce.error) {
+            return normalizedForce.error;
+        }
+        const normalizedIncremental = this.normalizeOptionalBooleanArg("index_codebase", "incremental", incremental);
+        if (normalizedIncremental.error) {
+            return normalizedIncremental.error;
+        }
+        const normalizedDryRun = this.normalizeOptionalBooleanArg("index_codebase", "dryRun", dryRun);
+        if (normalizedDryRun.error) {
+            return normalizedDryRun.error;
+        }
+        const normalizedMaxDepth = this.normalizeOptionalNonNegativeIntegerArg("index_codebase", "maxDepth", maxDepth);
+        if (normalizedMaxDepth.error) {
+            return normalizedMaxDepth.error;
+        }
+        const forceReindex = normalizedForce.value === true;
+        const incrementalIndex = normalizedIncremental.value === true;
+        const dryRunEnabled = normalizedDryRun.value === true;
         const splitterWasProvided = typeof splitter === "string";
-        const requestedSplitter = splitter || 'ast'; // Default to AST
+        const explicitSplitter = splitterWasProvided ? splitter.trim() : undefined;
         const customFileExtensions = this.normalizeStringArray(args.customExtensions);
         const customIgnorePatterns = this.normalizeStringArray(args.ignorePatterns);
         const customIgnoreFiles = this.normalizeStringArray(args.ignoreFiles);
         const customFileExtensionsProvided = Array.isArray(args.customExtensions);
         const customIgnorePatternsProvided = Array.isArray(args.ignorePatterns);
         const customIgnoreFilesProvided = Array.isArray(args.ignoreFiles);
-        const requestMaxDepth = Number.isFinite(maxDepth) && maxDepth >= 0
-            ? Math.floor(maxDepth)
-            : undefined;
+        const requestMaxDepth = normalizedMaxDepth.value;
         const requestMaxDepthProvided = requestMaxDepth !== undefined;
 
         try {
             if (incrementalIndex && forceReindex) {
-                return this.errorResponse("Error: index_codebase arguments 'incremental' and 'force' are mutually exclusive. Use incremental=true for manual change sync, or force=true for full re-index.");
+                return this.errorResponse("Error: index_codebase arguments 'incremental' and 'force' are mutually exclusive. Use incremental=true for ordinary manual sync of added, modified, removed, or newly ignored files. Use force=true only when a full rebuild is required, such as after embedding/schema/splitter compatibility changes or when index state is not trustworthy.");
             }
-            if (incrementalIndex && dryRun === true) {
+            if (incrementalIndex && dryRunEnabled) {
                 return this.errorResponse("Error: index_codebase incremental=true cannot be combined with dryRun=true.");
+            }
+            if (splitter !== undefined && typeof splitter !== "string") {
+                return this.errorResponse("Error: index_codebase argument 'splitter' must be 'ast' or 'langchain' when provided.");
             }
 
             // Validate splitter parameter
-            if (!isRequestSplitterType(requestedSplitter)) {
+            if (explicitSplitter !== undefined && !isRequestSplitterType(explicitSplitter)) {
                 return {
                     content: [{
                         type: "text",
-                        text: `Error: Invalid splitter type '${requestedSplitter}'. Must be 'ast' or 'langchain'.`
+                        text: `Error: Invalid splitter type '${explicitSplitter}'. Must be 'ast' or 'langchain'.`
                     }],
                     isError: true
                 };
             }
-            const splitterType: RequestSplitterType = requestedSplitter;
-            const indexOptions: CodebaseIndexOptions = {
-                requestSplitter: splitterType,
-                requestCustomExtensions: customFileExtensions,
-                requestIgnorePatterns: customIgnorePatterns,
-                requestIgnoreFiles: customIgnoreFiles,
-                requestMaxDepth
-            };
             // Force absolute path resolution - warn if relative path provided
             const absolutePath = ensureAbsolutePath(codebasePath);
 
@@ -1093,7 +1191,21 @@ export class ToolHandlers {
                 };
             }
 
-            if (dryRun === true) {
+            const configuredSplitter = configManager.getString("splitterType", absolutePath);
+            if (configuredSplitter !== undefined && !isRequestSplitterType(configuredSplitter)) {
+                console.warn(`[INDEX] Ignoring invalid config.splitterType value '${configuredSplitter}' for '${absolutePath}'. Falling back to ast unless the tool request overrides it.`);
+            }
+            const splitterType: RequestSplitterType = explicitSplitter
+                ?? (isRequestSplitterType(configuredSplitter) ? configuredSplitter : "ast");
+            const indexOptions: CodebaseIndexOptions = {
+                requestSplitter: splitterType,
+                requestCustomExtensions: customFileExtensions,
+                requestIgnorePatterns: customIgnorePatterns,
+                requestIgnoreFiles: customIgnoreFiles,
+                requestMaxDepth
+            };
+
+            if (dryRunEnabled) {
                 const preview = await this.context.previewIndexableFiles(
                     absolutePath,
                     customIgnorePatterns,
@@ -1209,7 +1321,7 @@ export class ToolHandlers {
                 return {
                     content: [{
                         type: "text",
-                        text: `Codebase '${absolutePath}' is already indexed. Use incremental=true to manually sync changed files, or force=true to full re-index.`
+                        text: `Codebase '${absolutePath}' is already indexed. Use incremental=true to manually sync added, modified, removed, or newly ignored files without rebuilding. Use force=true only when a full rebuild is required, such as after embedding/schema/splitter compatibility changes or when index state is not trustworthy.`
                     }],
                     isError: true
                 };
@@ -1387,7 +1499,19 @@ export class ToolHandlers {
             { skipEffectiveLineLimit: true }
         );
 
-        this.snapshotManager.clearCodebaseSyncWarning(absolutePath);
+        if (stats.added > 0 || stats.removed > 0 || stats.modified > 0) {
+            const collectionStats = await this.queryCollectionStats(absolutePath);
+            if (collectionStats) {
+                this.snapshotManager.setCodebaseIndexed(absolutePath, {
+                    ...collectionStats,
+                    status: 'completed' as const
+                });
+            } else {
+                this.snapshotManager.clearCodebaseSyncWarning(absolutePath);
+            }
+        } else {
+            this.snapshotManager.clearCodebaseSyncWarning(absolutePath);
+        }
         this.snapshotManager.saveCodebaseSnapshot();
 
         const pathInfo = originalPath !== absolutePath
@@ -1453,8 +1577,10 @@ export class ToolHandlers {
             const synchronizer = new FileSynchronizer(absolutePath, ignorePatterns, supportedExtensions, { maxDepth: requestMaxDepth });
             await synchronizer.initialize();
 
-            // Store synchronizer in the context (let context manage collection names)
-            await this.context.getPreparedCollection(absolutePath);
+            // Store synchronizer in the context (let context manage collection names).
+            // indexCodebase prepares the collection for this run; pre-creating it
+            // would make an ordinary full index look like it is appending to an
+            // existing collection.
             const collectionName = this.context.getCollectionName(absolutePath);
             this.context.setSynchronizer(collectionName, synchronizer);
 
@@ -1630,10 +1756,15 @@ export class ToolHandlers {
         if (normalizedIncludeTraceEvidence.error) {
             return normalizedIncludeTraceEvidence.error;
         }
+        const normalizedExtensionFilter = this.normalizeOptionalExtensionFilter(extensionFilter);
+        if (normalizedExtensionFilter.error) {
+            return normalizedExtensionFilter.error;
+        }
 
         try {
             // Sync indexed codebases from the vector database first.
             await this.syncIndexedCodebasesFromVectorDatabase();
+            this.snapshotManager.refreshFromDiskForRead();
 
             // Force absolute path resolution - warn if relative path provided
             const absolutePath = ensureAbsolutePath(codebasePath);
@@ -1701,6 +1832,10 @@ export class ToolHandlers {
             if (isIndexing) {
                 indexingStatusMessage = `\n⚠️  **Indexing in Progress**: This codebase is currently being indexed in the background. Search results may be incomplete until indexing completes.`;
             }
+            const syncStatusMessage = this.getSyncStatusMessage(searchCodebasePath);
+            const syncSearchPrefix = syncStatusMessage.length > 0
+                ? `${syncStatusMessage}\n\n`
+                : "";
 
             console.log(`[SEARCH] Searching in codebase: ${searchCodebasePath}`);
             console.log(`[SEARCH] Query: "${query}"`);
@@ -1713,23 +1848,13 @@ export class ToolHandlers {
 
             // Build filter expression from extensionFilter list
             let filterExpr: string | undefined = undefined;
-            if (Array.isArray(extensionFilter) && extensionFilter.length > 0) {
-                const cleaned = extensionFilter
-                    .filter((v: any) => typeof v === 'string')
-                    .map((v: string) => v.trim())
-                    .filter((v: string) => v.length > 0);
-                const invalid = cleaned.filter((e: string) => !(e.startsWith('.') && e.length > 1 && !/\s/.test(e)));
-                if (invalid.length > 0) {
-                    return {
-                        content: [{ type: 'text', text: `Error: Invalid file extensions in extensionFilter: ${JSON.stringify(invalid)}. Use proper extensions like '.ts', '.py'.` }],
-                        isError: true
-                    };
-                }
-                const quoted = cleaned.map((e: string) => `'${e}'`).join(', ');
+            if (normalizedExtensionFilter.extensions && normalizedExtensionFilter.extensions.length > 0) {
+                const quoted = normalizedExtensionFilter.extensions.map((e: string) => `'${e}'`).join(', ');
                 filterExpr = `fileExtension in [${quoted}]`;
             }
 
             const resultLimit = await this.resolveSearchResultLimit(normalizedLimit.limit, searchCodebasePath);
+            const searchThreshold = this.resolveSearchThreshold(searchCodebasePath);
             const filenameQueryStatus = await analyzeFilenameLikeQuery({
                 query,
                 codebasePath: searchCodebasePath,
@@ -1742,7 +1867,7 @@ export class ToolHandlers {
                 searchCodebasePath,
                 query,
                 resultLimit,
-                0.3,
+                searchThreshold,
                 filterExpr,
                 {
                     targetRole: normalizedTargetRole.targetRole,
@@ -1775,6 +1900,9 @@ export class ToolHandlers {
                 }
                 if (isIndexing) {
                     noResultsMessage += `\n\nNote: This codebase is still being indexed. Try searching again after indexing completes, or the query may not match any indexed content.`;
+                }
+                if (syncSearchPrefix.length > 0) {
+                    noResultsMessage = `${syncSearchPrefix}${noResultsMessage}`;
                 }
                 return {
                     content: [{
@@ -1825,6 +1953,9 @@ export class ToolHandlers {
             }
             if (searchCodebasePath !== absolutePath) {
                 resultMessage += `\nRequested path '${absolutePath}' is covered by indexed codebase '${searchCodebasePath}'.`;
+            }
+            if (syncSearchPrefix.length > 0) {
+                resultMessage = `${syncSearchPrefix}${resultMessage}`;
             }
             resultMessage += `\n\n${formattedResults}`;
 
@@ -2048,11 +2179,13 @@ export class ToolHandlers {
             }
 
             await this.syncIndexedCodebasesFromVectorDatabase();
+            this.snapshotManager.refreshFromDiskForRead();
 
             // Check indexing status using new status system
             const statusCodebasePath = this.snapshotManager.findTrackedCodebasePath(absolutePath) || absolutePath;
             const status = this.snapshotManager.getCodebaseStatus(statusCodebasePath);
             const info = this.snapshotManager.getCodebaseInfo(statusCodebasePath);
+            const syncStatusMessage = this.getSyncStatusMessage(statusCodebasePath);
 
             let statusMessage = '';
 
@@ -2066,9 +2199,15 @@ export class ToolHandlers {
                         if (indexedInfo.syncWarning) {
                             statusMessage += `\n⚠️  Sync warning: ${indexedInfo.syncWarning}`;
                         }
+                        if (syncStatusMessage.length > 0) {
+                            statusMessage += `\n${syncStatusMessage}`;
+                        }
                         statusMessage += `\n🕐 Last updated: ${new Date(indexedInfo.lastUpdated).toLocaleString()}`;
                     } else {
                         statusMessage = `✅ Codebase '${statusCodebasePath}' is fully indexed and ready for search.`;
+                        if (syncStatusMessage.length > 0) {
+                            statusMessage += `\n${syncStatusMessage}`;
+                        }
                     }
                     break;
 
@@ -2087,6 +2226,9 @@ export class ToolHandlers {
                         statusMessage += `\n🕐 Last updated: ${new Date(indexingInfo.lastUpdated).toLocaleString()}`;
                     } else {
                         statusMessage = `🔄 Codebase '${statusCodebasePath}' is currently being indexed.`;
+                    }
+                    if (syncStatusMessage.length > 0) {
+                        statusMessage += `\n${syncStatusMessage}`;
                     }
                     break;
 

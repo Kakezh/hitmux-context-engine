@@ -59,17 +59,25 @@ function saveBenchmark(results) {
     console.log(`\n📊 Benchmark saved to ${BENCHMARK_FILE}`);
 }
 
-function main() {
+function runBenchmark(options = {}) {
+    const {
+        measure = measureBuildTime,
+        save = saveBenchmark,
+        setExitCode = (code) => {
+            process.exitCode = code;
+        }
+    } = options;
+
     console.log('🚀 Starting build performance benchmark...');
     
     const results = [];
     
     // Clean first
-    results.push(measureBuildTime('pnpm clean', 'Clean all packages'));
+    results.push(measure('pnpm clean', 'Clean all packages'));
     
     // Build individual packages
-    results.push(measureBuildTime('pnpm build:core', 'Build core package'));
-    results.push(measureBuildTime('pnpm build:mcp', 'Build MCP package'));
+    results.push(measure('pnpm build:core', 'Build core package'));
+    results.push(measure('pnpm build:mcp', 'Build MCP package'));
     
     const totalTime = results.reduce((sum, result) => sum + result.duration, 0);
     const successCount = results.filter(r => r.success).length;
@@ -80,11 +88,21 @@ function main() {
     console.log(`   Platform: ${process.platform}`);
     console.log(`   Node version: ${process.version}`);
     
-    saveBenchmark(results);
+    save(results);
+
+    if (results.some(result => !result.success)) {
+        setExitCode(1);
+    }
+
+    return results;
+}
+
+function main() {
+    runBenchmark();
 }
 
 if (require.main === module) {
     main();
 }
 
-module.exports = { measureBuildTime, saveBenchmark };
+module.exports = { measureBuildTime, saveBenchmark, runBenchmark };

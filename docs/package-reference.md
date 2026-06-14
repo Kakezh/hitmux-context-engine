@@ -25,7 +25,8 @@ Configure product options in `~/.hitmux-context-engine/config.conf` or `./.hitmu
 Indexes a codebase directory for hybrid search. Useful arguments include:
 
 - `path`: codebase path.
-- `force`: re-index even when already indexed.
+- `incremental`: manually sync added, modified, removed, or newly ignored files for an already indexed codebase without rebuilding.
+- `force`: full rebuild for exceptional cases only, such as embedding/schema/splitter compatibility changes or untrustworthy index state.
 - `dryRun`: preview indexable files without writing vectors.
 - `customExtensions`: additional extensions to include.
 - `customIgnorePatterns`: additional ignore globs.

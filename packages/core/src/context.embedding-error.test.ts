@@ -189,6 +189,23 @@ describe('Context embedding failure handling', () => {
         await expect(context.indexCodebase(project)).rejects.toThrow('Milvus insert failed');
     });
 
+    it('propagates mid-index vector database insert failures instead of treating them as file skips', async () => {
+        await writeConfig({ hybridMode: false, embeddingBatchSize: 1 });
+        const project = await createProject();
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.insert.mockRejectedValueOnce(new Error('Milvus insert failed mid-index'));
+        vectorDatabase.getCollectionRowCount.mockResolvedValue(1);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new HealthyEmbedding(),
+            vectorDatabase,
+            codeSplitter: new OneChunkSplitter(),
+        });
+
+        await expect(context.indexCodebase(project)).rejects.toThrow('Milvus insert failed mid-index');
+        expect(vectorDatabase.insert).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects completed indexing when the target collection remains empty', async () => {
         const project = await createProject();
         const vectorDatabase = createVectorDatabase();

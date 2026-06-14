@@ -275,6 +275,7 @@ gitRemoteName = origin
 autoIndexing = true
 interactiveIndexing = true
 backgroundSync = true
+automaticIncrementalEffectiveLineLimit = 10000
 syncIntervalMs = 300000
 syncLockStaleMs = 600000
 triggerWatcher = true
@@ -285,6 +286,7 @@ Useful combinations:
 - Set `backgroundSync = false` to disable periodic polling while keeping trigger-based sync.
 - Set `triggerWatcher = false` on read-only or sandboxed filesystems.
 - Set `interactiveIndexing = false` to block `index_codebase` writes while still allowing dry-run previews.
+- Set `automaticIncrementalEffectiveLineLimit` to control when automatic incremental sync pauses and asks for manual `index_codebase` with `incremental=true`.
 
 The trigger watcher listens to `~/.hitmux-context-engine/.sync-trigger`. Touching that file requests a debounced re-index.
 
@@ -329,6 +331,7 @@ merkleSnapshotMaxBytes = 52428800
 autoIndexing = true
 interactiveIndexing = true
 backgroundSync = true
+automaticIncrementalEffectiveLineLimit = 10000
 syncIntervalMs = 300000
 syncLockStaleMs = 600000
 triggerWatcher = true

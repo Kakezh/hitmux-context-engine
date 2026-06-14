@@ -33,7 +33,7 @@ export class OpenAIEmbedding extends Embedding {
             return knownModels[model].dimension;
         }
 
-        const cachedDimension = OpenAIEmbedding.detectedDimensions.get(model);
+        const cachedDimension = OpenAIEmbedding.detectedDimensions.get(this.getDimensionCacheKey(model));
         if (cachedDimension) {
             this.dimension = cachedDimension;
             return cachedDimension;
@@ -125,7 +125,7 @@ export class OpenAIEmbedding extends Embedding {
             return knownModels[model].dimension;
         }
 
-        const cachedDimension = OpenAIEmbedding.detectedDimensions.get(model);
+        const cachedDimension = OpenAIEmbedding.detectedDimensions.get(this.getDimensionCacheKey(model));
         if (cachedDimension) {
             this.dimension = cachedDimension;
             return cachedDimension;
@@ -162,7 +162,7 @@ export class OpenAIEmbedding extends Embedding {
             return;
         }
 
-        const cachedDimension = OpenAIEmbedding.detectedDimensions.get(model);
+        const cachedDimension = OpenAIEmbedding.detectedDimensions.get(this.getDimensionCacheKey(model));
         if (cachedDimension) {
             this.dimension = cachedDimension;
             return;
@@ -174,7 +174,24 @@ export class OpenAIEmbedding extends Embedding {
     private cacheDimension(model: string, dimension: number): void {
         this.dimension = dimension;
         if (!OpenAIEmbedding.getSupportedModels()[model]) {
-            OpenAIEmbedding.detectedDimensions.set(model, dimension);
+            OpenAIEmbedding.detectedDimensions.set(this.getDimensionCacheKey(model), dimension);
+        }
+    }
+
+    private getDimensionCacheKey(model: string): string {
+        return `${this.getNormalizedBaseURL()}::${model}`;
+    }
+
+    private getNormalizedBaseURL(): string {
+        const baseURL = this.config.baseURL?.trim();
+        if (!baseURL) {
+            return 'openai-default';
+        }
+
+        try {
+            return new URL(baseURL).toString().replace(/\/+$/, '');
+        } catch {
+            return baseURL.replace(/\/+$/, '');
         }
     }
 

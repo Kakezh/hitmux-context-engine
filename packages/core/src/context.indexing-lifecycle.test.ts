@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { Context } from './context';
+import { Context, ExistingCollectionFullIndexError } from './context';
 import { Embedding, EmbeddingVector } from './embedding';
 import { Splitter, CodeChunk } from './splitter';
 import { VectorDatabase } from './vectordb';
@@ -30,13 +30,13 @@ class TestEmbedding extends Embedding {
     }
 }
 
-class TestSplitter implements Splitter {
+class OneChunkSplitter implements Splitter {
     async split(code: string, language: string, filePath?: string): Promise<CodeChunk[]> {
         return [{
             content: code,
             metadata: {
                 startLine: 1,
-                endLine: code.split('\n').length,
+                endLine: 1,
                 language,
                 filePath,
             },
@@ -45,25 +45,6 @@ class TestSplitter implements Splitter {
 
     setChunkSize(): void { }
     setChunkOverlap(): void { }
-}
-
-function createCollectionDescription(codebasePath: string): string {
-    return [
-        `codebasePath:${codebasePath}`,
-        `hitmuxContext:${JSON.stringify({
-            version: 1,
-            codebasePath,
-            embedding: {
-                provider: 'test',
-                model: 'unknown',
-                dimension: 3,
-            },
-            schemaVersion: 2,
-            metadataVersion: 2,
-            splitterType: 'ast',
-            createdAt: '2026-06-12T00:00:00.000Z',
-        })}`,
-    ].join('\n');
 }
 
 const createVectorDatabase = (): jest.Mocked<VectorDatabase> => ({
@@ -84,17 +65,17 @@ const createVectorDatabase = (): jest.Mocked<VectorDatabase> => ({
     getCollectionRowCount: jest.fn().mockResolvedValue(-1),
 });
 
-describe('Context hybrid collection recovery', () => {
+describe('Context indexing lifecycle', () => {
     let tempRoot: string;
     let originalHome: string | undefined;
 
     beforeEach(async () => {
-        tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'hitmux-context-engine-hybrid-'));
+        tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'hitmux-context-engine-indexing-lifecycle-'));
         const homeDir = path.join(tempRoot, 'home');
         await fs.mkdir(homeDir, { recursive: true });
         originalHome = process.env.HOME;
         process.env.HOME = homeDir;
-        await writeConfig(homeDir, { hybridMode: true });
+        await writeConfig(homeDir, { hybridMode: false });
     });
 
     afterEach(async () => {
@@ -106,26 +87,49 @@ describe('Context hybrid collection recovery', () => {
         await fs.rm(tempRoot, { recursive: true, force: true });
     });
 
-    it('ensures existing hybrid collections have required indexes before reuse', async () => {
+    async function createProject(): Promise<string> {
         const project = path.join(tempRoot, 'project');
         await fs.mkdir(project);
         await fs.writeFile(path.join(project, 'index.ts'), 'export const value = 1;');
+        return project;
+    }
 
+    it('rejects ordinary full indexing when the collection already exists', async () => {
+        const project = await createProject();
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.hasCollection.mockResolvedValue(true);
-        vectorDatabase.getCollectionDescription.mockResolvedValue(createCollectionDescription(project));
-
         const context = new Context({
+            hybridMode: false,
             embedding: new TestEmbedding(),
             vectorDatabase,
-            codeSplitter: new TestSplitter(),
+            codeSplitter: new OneChunkSplitter(),
         });
 
-        await context.getPreparedCollection(project);
+        await expect(context.indexCodebase(project)).rejects.toBeInstanceOf(ExistingCollectionFullIndexError);
+        expect(vectorDatabase.dropCollection).not.toHaveBeenCalled();
+        expect(vectorDatabase.createCollection).not.toHaveBeenCalled();
+        expect(vectorDatabase.insert).not.toHaveBeenCalled();
+    });
 
-        expect(vectorDatabase.ensureHybridCollectionReady).toHaveBeenCalledWith(context.getCollectionName(project));
-        expect(vectorDatabase.createHybridCollection).not.toHaveBeenCalled();
-        expect(vectorDatabase.insertHybrid).not.toHaveBeenCalled();
+    it('allows force reindexing to replace an existing collection', async () => {
+        const project = await createProject();
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.hasCollection.mockResolvedValue(true);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new OneChunkSplitter(),
+        });
+
+        await expect(context.indexCodebase(project, undefined, true)).resolves.toMatchObject({
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: 'completed',
+        });
+        expect(vectorDatabase.dropCollection).toHaveBeenCalledWith(context.getCollectionName(project));
+        expect(vectorDatabase.createCollection).toHaveBeenCalled();
+        expect(vectorDatabase.insert).toHaveBeenCalled();
     });
 });
 

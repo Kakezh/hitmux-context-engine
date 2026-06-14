@@ -76,6 +76,30 @@ test("index_codebase rejects malformed ignore pattern arrays before path resolut
     assert.match(result.content[0].text, /array of non-empty strings/);
 });
 
+test("index_codebase rejects malformed control arguments before path resolution", async () => {
+    const handlers = createHandlers();
+
+    const cases: Array<{ args: Record<string, unknown>; field: string }> = [
+        { args: { force: "false" }, field: "force" },
+        { args: { incremental: "true" }, field: "incremental" },
+        { args: { dryRun: "true" }, field: "dryRun" },
+        { args: { maxDepth: "1" }, field: "maxDepth" },
+        { args: { maxDepth: -1 }, field: "maxDepth" },
+        { args: { maxDepth: Number.POSITIVE_INFINITY }, field: "maxDepth" },
+    ];
+
+    for (const { args, field } of cases) {
+        const result = await handlers.handleIndexCodebase({
+            path: "/tmp/does-not-exist",
+            ...args
+        });
+
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, new RegExp(field));
+        assert.doesNotMatch(result.content[0].text, /does not exist/);
+    }
+});
+
 test("index_codebase dryRun previews files without starting indexing", async () => {
     await withTempDir(async (tempRoot) => {
         const project = path.join(tempRoot, "repo");
@@ -187,6 +211,112 @@ test("index_codebase incremental=true manually syncs changed files without full 
         const info = snapshotManager.getCodebaseInfo(project);
         assert.equal(info?.status, "indexed");
         assert.equal((info as any).syncWarning, undefined);
+    });
+});
+
+test("index_codebase incremental=true refreshes snapshot statistics after changed files are synced", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        const collectionName = "code_chunks_repo";
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => [],
+                getCollectionRowCount: async () => 5,
+                query: async () => [
+                    { relativePath: "src/a.ts" },
+                    { relativePath: "src/a.ts" },
+                    { relativePath: "src/b.ts" },
+                    { relativePath: "src/c.ts" },
+                    { relativePath: "src/c.ts" }
+                ]
+            }),
+            getCollectionName: () => collectionName,
+            hasIndex: async () => true,
+            reindexByChange: async () => ({ added: 1, removed: 0, modified: 1 })
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 1,
+            totalChunks: 2,
+            status: "completed"
+        }, {
+            requestSplitter: "langchain",
+            requestCustomExtensions: [".vue"]
+        });
+        snapshotManager.saveCodebaseSnapshot();
+
+        const handlers = new ToolHandlers(context, snapshotManager);
+        const result = await handlers.handleIndexCodebase({
+            path: project,
+            incremental: true
+        });
+
+        assert.equal(result.isError, undefined);
+        const info = snapshotManager.getCodebaseInfo(project);
+        assert.equal(info?.status, "indexed");
+        assert.equal((info as any).indexedFiles, 3);
+        assert.equal((info as any).totalChunks, 5);
+        assert.equal((info as any).statsSource, "collection_row_count");
+        assert.equal((info as any).requestSplitter, "langchain");
+        assert.deepEqual((info as any).requestCustomExtensions, [".vue"]);
+    });
+});
+
+test("index_codebase uses config splitterType when splitter argument is omitted", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+        await writeProjectConfig(project, { splitterType: "langchain" });
+
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => [],
+                checkCollectionLimit: async () => true
+            }),
+            hasIndex: async () => false
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        const handlers = new ToolHandlers(context, snapshotManager);
+        let requestedSplitter: string | undefined;
+        (handlers as any).startBackgroundIndexing = async (_path: string, _force: boolean, splitterType: string) => {
+            requestedSplitter = splitterType;
+        };
+
+        const result = await handlers.handleIndexCodebase({ path: project });
+
+        assert.equal(result.isError, undefined);
+        assert.equal(requestedSplitter, "langchain");
+        assert.match(result.content[0].text, /LANGCHAIN splitter/);
+        assert.equal((snapshotManager.getCodebaseInfo(project) as any)?.requestSplitter, "langchain");
+    });
+});
+
+test("index_codebase explicit splitter overrides config splitterType", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+        await writeProjectConfig(project, { splitterType: "langchain" });
+
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => [],
+                checkCollectionLimit: async () => true
+            }),
+            hasIndex: async () => false
+        } as any;
+        const handlers = new ToolHandlers(context, new SnapshotManager());
+        let requestedSplitter: string | undefined;
+        (handlers as any).startBackgroundIndexing = async (_path: string, _force: boolean, splitterType: string) => {
+            requestedSplitter = splitterType;
+        };
+
+        const result = await handlers.handleIndexCodebase({ path: project, splitter: "ast" });
+
+        assert.equal(result.isError, undefined);
+        assert.equal(requestedSplitter, "ast");
+        assert.match(result.content[0].text, /AST splitter/);
     });
 });
 
@@ -414,6 +544,173 @@ test("search_code uses a bounded default when limit is omitted", async () => {
     });
 });
 
+test("search_code uses project searchTopK and searchThreshold when explicit limit is omitted", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+        await writeProjectConfig(project, {
+            searchTopK: 7,
+            searchThreshold: 0.12
+        });
+
+        let requestedTopK: number | undefined;
+        let requestedThreshold: number | undefined;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async (
+                _codebasePath: string,
+                _query: string,
+                topK: number,
+                threshold: number
+            ) => {
+                requestedTopK = topK;
+                requestedThreshold = threshold;
+                return [{
+                    content: "function runSearch() {}",
+                    relativePath: "src/search.ts",
+                    startLine: 1,
+                    endLine: 1,
+                    language: "typescript",
+                    score: 1
+                }];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 4,
+            totalChunks: 37,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch"
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.equal(requestedTopK, 7);
+        assert.equal(requestedThreshold, 0.12);
+    });
+});
+
+test("search_code falls back when configured searchTopK or searchThreshold are invalid", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+        await writeProjectConfig(project, {
+            searchTopK: -1,
+            searchThreshold: -0.5
+        });
+
+        let requestedTopK: number | undefined;
+        let requestedThreshold: number | undefined;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async (
+                _codebasePath: string,
+                _query: string,
+                topK: number,
+                threshold: number
+            ) => {
+                requestedTopK = topK;
+                requestedThreshold = threshold;
+                return [{
+                    content: "function runSearch() {}",
+                    relativePath: "src/search.ts",
+                    startLine: 1,
+                    endLine: 1,
+                    language: "typescript",
+                    score: 1
+                }];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 4,
+            totalChunks: 37,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch"
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.equal(requestedTopK, 20);
+        assert.equal(requestedThreshold, 0.3);
+    });
+});
+
+test("search_code reports active automatic sync progress while returning current index results", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async () => [{
+                content: "function runSearch() {}",
+                relativePath: "src/search.ts",
+                startLine: 1,
+                endLine: 1,
+                language: "typescript",
+                score: 1
+            }]
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 4,
+            totalChunks: 37,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const syncManager = {
+            getSyncStatus: (requestedPath: string) => requestedPath === project
+                ? {
+                    codebasePath: project,
+                    phase: "Removed third_party/generated.c",
+                    current: 1,
+                    total: 4,
+                    percentage: 25,
+                    startedAtMs: Date.now() - 1250,
+                    updatedAtMs: Date.now()
+                }
+                : undefined
+        };
+        const handlers = new ToolHandlers(context, snapshotManager, syncManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch"
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.match(result.content[0].text, /Automatic sync in progress/);
+        assert.match(result.content[0].text, /Progress: 25\.0% \(1\/4\)/);
+        assert.match(result.content[0].text, /Found 1 results/);
+    });
+});
+
 test("search_code keeps explicit limit as an override", async () => {
     await withTempDir(async (tempRoot) => {
         const project = path.join(tempRoot, "repo");
@@ -456,6 +753,96 @@ test("search_code keeps explicit limit as an override", async () => {
 
         assert.equal(result.isError, undefined);
         assert.equal(requestedTopK, 3);
+    });
+});
+
+test("search_code validates extensionFilter before building the vector database filter", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let searchCalls = 0;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async () => {
+                searchCalls += 1;
+                return [];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch",
+            extensionFilter: [".ts'] || id != '' || fileExtension in ['.js"]
+        });
+
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /extensionFilter/);
+        assert.equal(searchCalls, 0);
+    });
+});
+
+test("search_code passes validated extensionFilter as a Milvus filter expression", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let requestedFilter: string | undefined;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async (
+                _codebasePath: string,
+                _query: string,
+                _topK: number,
+                _threshold: number,
+                filterExpr?: string
+            ) => {
+                requestedFilter = filterExpr;
+                return [{
+                    content: "function runSearch() {}",
+                    relativePath: "src/search.ts",
+                    startLine: 1,
+                    endLine: 1,
+                    language: "typescript",
+                    score: 1
+                }];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch",
+            extensionFilter: [".ts", ".tsx", ".c++"]
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.equal(requestedFilter, "fileExtension in ['.ts', '.tsx', '.c++']");
     });
 });
 

@@ -153,6 +153,91 @@ describe('Context ignore pattern isolation', () => {
         expect(vectorDatabase.insert).not.toHaveBeenCalled();
     });
 
+    it('uses target project customExtensions even when Context is constructed outside the project', async () => {
+        const workspace = path.join(tempRoot, 'workspace');
+        const project = path.join(tempRoot, 'project-with-config-extension');
+        await fs.mkdir(workspace);
+        await fs.mkdir(project);
+        await writeConfig(project, { customExtensions: ['foo'] });
+        await fs.writeFile(path.join(project, 'custom.foo'), 'project custom file');
+        const originalCwd = process.cwd();
+
+        const vectorDatabase = createVectorDatabase();
+        try {
+            process.chdir(workspace);
+            const context = new Context({
+                hybridMode: false,
+                embedding: new TestEmbedding(),
+                vectorDatabase,
+                codeSplitter: new TestSplitter(),
+            });
+
+            await context.indexCodebase(project);
+        } finally {
+            process.chdir(originalCwd);
+        }
+
+        expect(vectorDatabase.insert).toHaveBeenCalledTimes(1);
+        expect(vectorDatabase.insert.mock.calls[0][1][0].relativePath).toBe('custom.foo');
+    });
+
+    it('does not apply cwd project customExtensions to a different target project', async () => {
+        const workspace = path.join(tempRoot, 'workspace-with-config');
+        const project = path.join(tempRoot, 'project-without-config-extension');
+        await fs.mkdir(workspace);
+        await fs.mkdir(project);
+        await writeConfig(workspace, { customExtensions: ['foo'] });
+        await fs.writeFile(path.join(project, 'custom.foo'), 'target project should not inherit cwd config');
+        const originalCwd = process.cwd();
+
+        const vectorDatabase = createVectorDatabase();
+        try {
+            process.chdir(workspace);
+            const context = new Context({
+                hybridMode: false,
+                embedding: new TestEmbedding(),
+                vectorDatabase,
+                codeSplitter: new TestSplitter(),
+            });
+
+            await context.indexCodebase(project);
+        } finally {
+            process.chdir(originalCwd);
+        }
+
+        expect(vectorDatabase.insert).not.toHaveBeenCalled();
+    });
+
+    it('uses target project customIgnorePatterns even when Context is constructed outside the project', async () => {
+        const workspace = path.join(tempRoot, 'workspace');
+        const project = path.join(tempRoot, 'project-with-config-ignore');
+        await fs.mkdir(workspace);
+        await fs.mkdir(project);
+        await writeConfig(project, { customIgnorePatterns: ['ignored.ts'] });
+        await fs.writeFile(path.join(project, 'ignored.ts'), 'ignored by project config');
+        await fs.writeFile(path.join(project, 'kept.ts'), 'kept by project config');
+        const originalCwd = process.cwd();
+
+        const vectorDatabase = createVectorDatabase();
+        try {
+            process.chdir(workspace);
+            const context = new Context({
+                hybridMode: false,
+                embedding: new TestEmbedding(),
+                vectorDatabase,
+                codeSplitter: new TestSplitter(),
+            });
+
+            await context.indexCodebase(project);
+        } finally {
+            process.chdir(originalCwd);
+        }
+
+        const insertedDocuments = vectorDatabase.insert.mock.calls
+            .flatMap(([, documents]) => documents);
+        expect(insertedDocuments.map(document => document.relativePath)).toEqual(['kept.ts']);
+    });
+
     it('indexes configured extension-less files without enabling them globally', async () => {
         const projectA = path.join(tempRoot, 'project-a-extensionless');
         const projectB = path.join(tempRoot, 'project-b-extensionless');
@@ -238,6 +323,104 @@ describe('Context ignore pattern isolation', () => {
         }
     });
 
+    it('uses configured effective-line limit for automatic change indexing', async () => {
+        const project = path.join(tempRoot, 'project-configured-limit');
+        await fs.mkdir(project);
+        await writeConfig(project, { automaticIncrementalEffectiveLineLimit: 2 });
+        await fs.writeFile(path.join(project, 'initial.ts'), 'const initial = true;\n');
+
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase: createVectorDatabase(),
+            codeSplitter: new TestSplitter(),
+        });
+
+        try {
+            await context.reindexByChange(project);
+
+            await fs.writeFile(path.join(project, 'small.ts'), [
+                'const a = 1;',
+                'const b = 2;',
+                'const c = 3;',
+                ''
+            ].join('\n'));
+
+            await expect(context.reindexByChange(project)).rejects.toMatchObject({
+                name: 'IncrementalIndexTooLargeError',
+                effectiveLines: 3,
+                threshold: 2,
+                changedFiles: 1,
+            });
+        } finally {
+            await FileSynchronizer.deleteSnapshot(project);
+        }
+    });
+
+    it('does not stop automatic change indexing for a small edit in an existing large file', async () => {
+        const project = path.join(tempRoot, 'project-large-existing-small-edit');
+        await fs.mkdir(project);
+        const initialLines = Array.from({ length: 10_001 }, (_, index) => `const value${index} = ${index};`);
+        await fs.writeFile(path.join(project, 'large.ts'), `${initialLines.join('\n')}\n`);
+
+        const vectorDatabase = createVectorDatabase();
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new TestSplitter(),
+        });
+
+        try {
+            await context.reindexByChange(project);
+            vectorDatabase.insert.mockClear();
+
+            initialLines[5_000] = 'const value5000 = 42;';
+            await fs.writeFile(path.join(project, 'large.ts'), `${initialLines.join('\n')}\n`);
+
+            await expect(context.reindexByChange(project)).resolves.toEqual({
+                added: 0,
+                removed: 0,
+                modified: 1,
+            });
+            expect(vectorDatabase.insert).toHaveBeenCalled();
+        } finally {
+            await FileSynchronizer.deleteSnapshot(project);
+        }
+    });
+
+    it('stops automatic change indexing when a modified file adds too many effective lines', async () => {
+        const project = path.join(tempRoot, 'project-large-modified-growth');
+        await fs.mkdir(project);
+        await fs.writeFile(path.join(project, 'growing.ts'), 'const initial = true;\n');
+
+        const vectorDatabase = createVectorDatabase();
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new TestSplitter(),
+        });
+
+        try {
+            await context.reindexByChange(project);
+            vectorDatabase.insert.mockClear();
+
+            const lines = Array.from({ length: 10_002 }, (_, index) => `const value${index} = ${index};`).join('\n');
+            await fs.writeFile(path.join(project, 'growing.ts'), `${lines}\n`);
+
+            await expect(context.reindexByChange(project)).rejects.toMatchObject({
+                name: 'IncrementalIndexTooLargeError',
+                effectiveLines: 10_001,
+                threshold: 10_000,
+                changedFiles: 1,
+            });
+            expect(vectorDatabase.insert).not.toHaveBeenCalled();
+        } finally {
+            await FileSynchronizer.deleteSnapshot(project);
+        }
+    });
+
     it('reloads ignore files before change indexing so newly ignored large files do not trip the safety limit', async () => {
         const project = path.join(tempRoot, 'project-large-increment-ignored');
         await fs.mkdir(project);
@@ -315,6 +498,25 @@ describe('Context ignore pattern isolation', () => {
         ].join('\n'));
 
         await expect((context as any).countEffectiveLines([filePath])).resolves.toBe(3);
+    });
+
+    it('normalizes and escapes incremental delete filters', async () => {
+        const vectorDatabase = createVectorDatabase();
+        const context = new Context({ vectorDatabase });
+
+        await (context as any).deleteFileChunks('collection', 'src\\foo.ts');
+        expect(vectorDatabase.query).toHaveBeenLastCalledWith(
+            'collection',
+            'relativePath == "src/foo.ts"',
+            ['id']
+        );
+
+        await (context as any).deleteFileChunks('collection', 'src/a"b.ts');
+        expect(vectorDatabase.query).toHaveBeenLastCalledWith(
+            'collection',
+            'relativePath == "src/a\\"b.ts"',
+            ['id']
+        );
     });
 
     it('treats leading-slash directory ignore patterns as root-anchored and recursive during indexing', async () => {

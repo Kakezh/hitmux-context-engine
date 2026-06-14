@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,5 +64,35 @@ test("separate MCP snapshot managers preserve each other's indexed entries", asy
         assert.deepEqual(new Set(reloadedManager.getIndexedCodebases()), new Set([firstCodebase, secondCodebase]));
         assert.equal(reloadedManager.getCodebaseInfo(firstCodebase)?.status, "indexed");
         assert.equal(reloadedManager.getCodebaseInfo(secondCodebase)?.status, "indexed");
+    });
+});
+
+test("snapshot save skips writing when the lock cannot be acquired", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const snapshotDir = path.join(tempRoot, "home", ".hitmux-context-engine");
+        const snapshotPath = path.join(snapshotDir, "mcp-codebase-snapshot.json");
+        await mkdir(snapshotDir, { recursive: true });
+        await writeFile(snapshotPath, JSON.stringify({
+            formatVersion: "v2",
+            codebases: {},
+            lastUpdated: "2026-01-01T00:00:00.000Z"
+        }), "utf8");
+        await mkdir(`${snapshotPath}.lock`);
+
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(codebasePath, {
+            indexedFiles: 1,
+            totalChunks: 2,
+            status: "completed"
+        });
+
+        const saved = snapshotManager.saveCodebaseSnapshot();
+        const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+
+        assert.equal(saved, false);
+        assert.deepEqual(snapshot.codebases, {});
     });
 });

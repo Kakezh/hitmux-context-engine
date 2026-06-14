@@ -617,11 +617,16 @@ export class SnapshotManager {
     private mergeExternalEntry(codebasePath: string, info: CodebaseInfo): void {
         if (this.codebaseInfoMap.has(codebasePath)) return; // we already know about it
         if (this.recentlyRemoved.has(codebasePath)) return; // explicitly removed, don't re-add from disk
+        this.applyExternalEntry(codebasePath, info);
+    }
+
+    private applyExternalEntry(codebasePath: string, info: CodebaseInfo): void {
         this.codebaseInfoMap.set(codebasePath, info);
         if (info.status === 'indexed') {
             if (!this.indexedCodebases.includes(codebasePath)) {
                 this.indexedCodebases.push(codebasePath);
             }
+            this.indexingCodebases.delete(codebasePath);
             if (info.indexedFiles !== undefined) {
                 this.codebaseFileCount.set(codebasePath, info.indexedFiles);
             }
@@ -629,26 +634,87 @@ export class SnapshotManager {
             if (!this.indexingCodebases.has(codebasePath)) {
                 this.indexingCodebases.set(codebasePath, info.indexingPercentage || 0);
             }
+            this.indexedCodebases = this.indexedCodebases.filter(path => path !== codebasePath);
+            this.codebaseFileCount.delete(codebasePath);
+        } else if (info.status === 'indexfailed') {
+            this.indexedCodebases = this.indexedCodebases.filter(path => path !== codebasePath);
+            this.indexingCodebases.delete(codebasePath);
+            this.codebaseFileCount.delete(codebasePath);
         }
-        // indexfailed entries only need codebaseInfoMap, no extra list
     }
 
-    public saveCodebaseSnapshot(): void {
-        console.log('[SNAPSHOT-DEBUG] Saving codebase snapshot to:', this.snapshotFilePath);
+    private shouldApplyDiskEntry(codebasePath: string, diskInfo: CodebaseInfo): boolean {
+        if (this.recentlyRemoved.has(codebasePath)) return false;
 
-        const locked = this.acquireLock();
-        if (!locked) {
-            console.warn('[SNAPSHOT-DEBUG] Failed to acquire lock, saving without lock');
+        const currentInfo = this.codebaseInfoMap.get(codebasePath);
+        if (!currentInfo) return true;
+
+        const diskUpdated = Date.parse(diskInfo.lastUpdated);
+        const currentUpdated = Date.parse(currentInfo.lastUpdated);
+        if (!Number.isFinite(diskUpdated) || !Number.isFinite(currentUpdated)) {
+            return false;
         }
 
+        return diskUpdated > currentUpdated;
+    }
+
+    public refreshFromDiskForRead(): void {
         try {
-            // Ensure directory exists
+            if (!fs.existsSync(this.snapshotFilePath)) {
+                return;
+            }
+
+            const snapshotData = fs.readFileSync(this.snapshotFilePath, 'utf8');
+            const snapshot: CodebaseSnapshot = JSON.parse(snapshotData);
+
+            if (this.isV2Format(snapshot)) {
+                for (const [diskPath, diskInfo] of Object.entries(snapshot.codebases)) {
+                    if (!fs.existsSync(diskPath)) continue;
+                    if (this.shouldApplyDiskEntry(diskPath, diskInfo)) {
+                        this.applyExternalEntry(diskPath, diskInfo);
+                    }
+                }
+                return;
+            }
+
+            for (const codebasePath of snapshot.indexedCodebases || []) {
+                if (!fs.existsSync(codebasePath)) continue;
+                if (!this.codebaseInfoMap.has(codebasePath)) {
+                    this.applyExternalEntry(codebasePath, {
+                        status: 'indexed',
+                        indexedFiles: 0,
+                        totalChunks: 0,
+                        indexStatus: 'completed',
+                        lastUpdated: new Date().toISOString()
+                    });
+                }
+            }
+        } catch (error) {
+            console.warn('[SNAPSHOT-DEBUG] Error refreshing snapshot from disk:', error);
+        }
+    }
+
+    public saveCodebaseSnapshot(): boolean {
+        console.log('[SNAPSHOT-DEBUG] Saving codebase snapshot to:', this.snapshotFilePath);
+
+        try {
             const snapshotDir = path.dirname(this.snapshotFilePath);
             if (!fs.existsSync(snapshotDir)) {
                 fs.mkdirSync(snapshotDir, { recursive: true });
                 console.log('[SNAPSHOT-DEBUG] Created snapshot directory:', snapshotDir);
             }
+        } catch (error: any) {
+            console.error('[SNAPSHOT-DEBUG] Error preparing snapshot directory:', error);
+            return false;
+        }
 
+        const locked = this.acquireLock();
+        if (!locked) {
+            console.warn('[SNAPSHOT-DEBUG] Failed to acquire lock, skipping snapshot save');
+            return false;
+        }
+
+        try {
             // Read-merge: merge entries from disk that we don't have in memory
             try {
                 if (fs.existsSync(this.snapshotFilePath)) {
@@ -688,13 +754,13 @@ export class SnapshotManager {
             const failedCount = this.getFailedCodebases().length;
 
             console.log(`[SNAPSHOT-DEBUG] Snapshot saved successfully in v2 format. Indexed: ${indexedCount}, Indexing: ${indexingCount}, Failed: ${failedCount}`);
+            return true;
 
         } catch (error: any) {
             console.error('[SNAPSHOT-DEBUG] Error saving snapshot:', error);
+            return false;
         } finally {
-            if (locked) {
-                this.releaseLock();
-            }
+            this.releaseLock();
         }
     }
 }

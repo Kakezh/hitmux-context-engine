@@ -36,6 +36,7 @@ export interface HitmuxConfig {
     customExtensions?: string[];
     customIgnorePatterns?: string[];
     merkleSnapshotMaxBytes?: number;
+    automaticIncrementalEffectiveLineLimit?: number;
     autoIndexing?: boolean;
     interactiveIndexing?: boolean;
     backgroundSync?: boolean;
@@ -116,8 +117,8 @@ export class ConfigManager {
             };
         }
 
-        const completionBlock = formatCompletionBlock(missingEntries);
-        fs.writeFileSync(configPath, `${ensureTrailingNewline(content)}${completionBlock}`, 'utf-8');
+        const completedContent = mergeExistingConfigIntoTemplate(content, DEFAULT_GLOBAL_CONFIG_CONTENT);
+        fs.writeFileSync(configPath, completedContent, 'utf-8');
 
         return {
             path: configPath,
@@ -127,11 +128,15 @@ export class ConfigManager {
         };
     }
 
-    getAll(): HitmuxConfig {
+    getAll(projectRoot: string = process.cwd()): HitmuxConfig {
         return {
             ...this.readConfigFile(this.getGlobalConfigFilePath()),
-            ...this.readConfigFile(this.getProjectConfigFilePath())
+            ...this.readConfigFile(this.getProjectConfigFilePath(projectRoot))
         };
+    }
+
+    getGlobalAll(): HitmuxConfig {
+        return this.readConfigFile(this.getGlobalConfigFilePath());
     }
 
     getReadErrors(projectRoot: string = process.cwd()): ConfigReadError[] {
@@ -193,13 +198,18 @@ export class ConfigManager {
         }
     }
 
-    get<T extends HitmuxConfigKey>(key: T): HitmuxConfig[T] | undefined {
-        const value = this.getAll()[key];
+    get<T extends HitmuxConfigKey>(key: T, projectRoot?: string): HitmuxConfig[T] | undefined {
+        const value = this.getAll(projectRoot)[key];
         return value === null ? undefined : value;
     }
 
-    getString(key: HitmuxConfigKey): string | undefined {
-        const value = this.get(key);
+    getGlobal<T extends HitmuxConfigKey>(key: T): HitmuxConfig[T] | undefined {
+        const value = this.getGlobalAll()[key];
+        return value === null ? undefined : value;
+    }
+
+    getString(key: HitmuxConfigKey, projectRoot?: string): string | undefined {
+        const value = this.get(key, projectRoot);
         if (typeof value === 'string') {
             const trimmed = value.trim();
             return trimmed.length > 0 ? trimmed : undefined;
@@ -207,8 +217,8 @@ export class ConfigManager {
         return undefined;
     }
 
-    getNumber(key: HitmuxConfigKey): number | undefined {
-        const value = this.get(key);
+    getNumber(key: HitmuxConfigKey, projectRoot?: string): number | undefined {
+        const value = this.get(key, projectRoot);
         if (typeof value === 'number' && Number.isFinite(value)) {
             return value;
         }
@@ -219,8 +229,8 @@ export class ConfigManager {
         return undefined;
     }
 
-    getBoolean(key: HitmuxConfigKey): boolean | undefined {
-        const value = this.get(key);
+    getBoolean(key: HitmuxConfigKey, projectRoot?: string): boolean | undefined {
+        const value = this.get(key, projectRoot);
         if (typeof value === 'boolean') {
             return value;
         }
@@ -241,8 +251,17 @@ export class ConfigManager {
         return undefined;
     }
 
-    getStringArray(key: HitmuxConfigKey): string[] {
-        const value = this.get(key);
+    getStringArray(key: HitmuxConfigKey, projectRoot?: string): string[] {
+        const value = this.get(key, projectRoot);
+        return this.normalizeStringArray(value);
+    }
+
+    getGlobalStringArray(key: HitmuxConfigKey): string[] {
+        const value = this.getGlobal(key);
+        return this.normalizeStringArray(value);
+    }
+
+    private normalizeStringArray(value: unknown): string[] {
         if (Array.isArray(value)) {
             return value
                 .map(item => typeof item === 'string' ? item.trim() : '')
@@ -462,6 +481,11 @@ const CONFIG_COMPLETION_ENTRIES: ConfigCompletionEntry[] = [
         example: '52428800'
     },
     {
+        key: 'automaticIncrementalEffectiveLineLimit',
+        description: 'Effective-line growth limit before automatic incremental sync pauses for manual review.',
+        example: '10000'
+    },
+    {
         key: 'autoIndexing',
         description: 'Enable all automatic re-indexing.',
         example: 'true'
@@ -534,21 +558,74 @@ function isFileAlreadyExistsError(error: unknown): boolean {
 function extractConfOptionKeys(content: string): Set<HitmuxConfigKey> {
     const keys = new Set<HitmuxConfigKey>();
     for (const rawLine of content.split(/\r?\n/)) {
-        const match = /^\s*#?\s*([A-Za-z][A-Za-z0-9]*)\s*=/.exec(rawLine);
+        const match = matchConfOptionLine(rawLine);
         if (!match) {
             continue;
         }
 
-        keys.add(match[1] as HitmuxConfigKey);
+        keys.add(match.key as HitmuxConfigKey);
     }
     return keys;
 }
 
-function ensureTrailingNewline(content: string): string {
-    return content.length === 0 || content.endsWith('\n') ? content : `${content}\n`;
+function mergeExistingConfigIntoTemplate(existingContent: string, templateContent: string): string {
+    const existingLinesByKey = collectExistingConfOptionLines(existingContent);
+    const templateKeys = extractConfOptionKeys(templateContent);
+    const usedKeys = new Set<string>();
+    const outputLines: string[] = [];
+
+    for (const line of templateContent.replace(/\n$/, '').split(/\r?\n/)) {
+        const match = matchConfOptionLine(line);
+        if (!match) {
+            outputLines.push(line);
+            continue;
+        }
+
+        const existingLines = existingLinesByKey.get(match.key);
+        if (!existingLines || usedKeys.has(match.key)) {
+            outputLines.push(line);
+            continue;
+        }
+
+        outputLines.push(...existingLines);
+        usedKeys.add(match.key);
+    }
+
+    const extraLines: string[] = [];
+    for (const [key, lines] of existingLinesByKey.entries()) {
+        if (!templateKeys.has(key as HitmuxConfigKey)) {
+            extraLines.push(...lines);
+        }
+    }
+
+    if (extraLines.length > 0) {
+        outputLines.push('', '# Existing fields not present in the current default template.', ...extraLines);
+    }
+
+    return `${outputLines.join('\n')}\n`;
 }
 
-function formatCompletionBlock(entries: ConfigCompletionEntry[], title: string = 'Missing optional fields added as comments'): string {
+function collectExistingConfOptionLines(content: string): Map<string, string[]> {
+    const linesByKey = new Map<string, string[]>();
+    for (const rawLine of content.split(/\r?\n/)) {
+        const match = matchConfOptionLine(rawLine);
+        if (!match) {
+            continue;
+        }
+
+        const lines = linesByKey.get(match.key) || [];
+        lines.push(rawLine);
+        linesByKey.set(match.key, lines);
+    }
+    return linesByKey;
+}
+
+function matchConfOptionLine(line: string): { key: string } | null {
+    const match = /^\s*#?\s*([A-Za-z][A-Za-z0-9]*)\s*=/.exec(line);
+    return match ? { key: match[1] } : null;
+}
+
+function formatCompletionBlock(entries: ConfigCompletionEntry[], title: string): string {
     if (entries.length === 0) {
         return '';
     }

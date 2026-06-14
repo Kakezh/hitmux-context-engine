@@ -151,7 +151,7 @@ class ContextMcpServer {
 
         // Initialize managers
         const syncManager = new SyncManager(context, this.snapshotManager);
-        const toolHandlers = new ToolHandlers(context, this.snapshotManager);
+        const toolHandlers = new ToolHandlers(context, this.snapshotManager, syncManager);
 
         return {
             context,
@@ -173,8 +173,8 @@ Index a codebase directory to enable semantic search using a configurable code s
 - This tool is typically used when search fails due to an unindexed codebase.
 - Before first indexing, create a project ignore file such as .hceignore when generated, large, or private paths should be excluded.
 - The indexer automatically loads .*ignore files it finds in the project tree, including .hceignore, .gitignore, and .cursorignore. Use ignoreFiles only for extra non-default ignore file paths.
-- For an already indexed codebase, use incremental=true to manually sync changed files without rebuilding the full index.
-- If indexing is attempted on an already indexed path, and a conflict is detected, you MUST prompt the user to confirm whether to proceed with a force index (i.e., re-indexing and overwriting the previous index).
+- For an already indexed codebase, prefer incremental=true to manually sync added, modified, removed, or newly ignored files without rebuilding the full index.
+- Use force=true only when a full rebuild is required, such as after changing embedding configuration, splitter/schema compatibility, or when index/snapshot state is no longer trustworthy. Force re-indexing drops the existing index and should not be the default fix for ordinary file changes.
 `;
 
 
@@ -231,19 +231,18 @@ This tool is versatile and can be used before completing various tasks to retrie
                                 },
                                 force: {
                                     type: "boolean",
-                                    description: "Force re-indexing even if already indexed",
+                                    description: "Full rebuild for exceptional cases only. Drops and recreates the existing index; prefer incremental=true for ordinary added, modified, removed, or newly ignored files.",
                                     default: false
                                 },
                                 incremental: {
                                     type: "boolean",
-                                    description: "Manually sync changed files for an already indexed codebase without dropping or rebuilding the full index. Use this after reviewing a large automatic incremental-sync warning. Cannot be combined with force=true or dryRun=true.",
+                                    description: "Manually sync an already indexed codebase without dropping or rebuilding the full index. Handles added, modified, removed, and newly ignored files. Use this for normal index updates and after reviewing a large automatic incremental-sync warning. Cannot be combined with force=true or dryRun=true.",
                                     default: false
                                 },
                                 splitter: {
                                     type: "string",
-                                    description: "Code splitter to use: 'ast' for syntax-aware splitting with automatic fallback, 'langchain' for character-based splitting",
-                                    enum: ["ast", "langchain"],
-                                    default: "ast"
+                                    description: "Optional code splitter override: 'ast' for syntax-aware splitting with automatic fallback, 'langchain' for character-based splitting. Omit to use config.splitterType, then ast.",
+                                    enum: ["ast", "langchain"]
                                 },
                                 customExtensions: {
                                     type: "array",

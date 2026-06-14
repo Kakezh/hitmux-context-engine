@@ -23,8 +23,6 @@ import {
     SearchTargetRole,
     SemanticSearchOptions,
     SemanticSearchResult,
-    SymbolTraceEvidence,
-    SymbolTraceEvidenceKind,
     SymbolTraceOptions,
     SymbolTraceResult
 } from './types';
@@ -44,6 +42,8 @@ import {
 } from './search/file-role';
 import { normalizeLineRange } from './search/line-range';
 import { deduplicateSemanticSearchResults, getNormalizedContentHash } from './search/result-dedupe';
+import { traceSymbolInFiles } from './search/symbol-trace';
+import { countEffectiveLinesInContent } from './utils/effective-lines';
 
 /**
  * Thrown by indexCodebase / processFileList when an AbortSignal fires
@@ -74,10 +74,6 @@ interface ReindexByChangeOptions {
     skipEffectiveLineLimit?: boolean;
 }
 
-interface TraceLineContext {
-    enclosingSymbol?: string;
-}
-
 /**
  * Thrown when the embedding API fails (quota exhausted, auth failure,
  * network error, etc.). Propagates through processFileList so callers
@@ -95,7 +91,7 @@ export class EmbeddingError extends Error {
     }
 }
 
-const AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT = 10_000;
+const DEFAULT_AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT = 10_000;
 
 export class IndexingVerificationError extends Error {
     constructor(message: string) {
@@ -115,6 +111,13 @@ export class CollectionSchemaMismatchError extends Error {
     constructor(message: string) {
         super(message);
         this.name = 'CollectionSchemaMismatchError';
+    }
+}
+
+export class ExistingCollectionFullIndexError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ExistingCollectionFullIndexError';
     }
 }
 
@@ -341,7 +344,7 @@ export class Context {
         this.codeSplitter = config.codeSplitter || new AstCodeSplitter(2500, 300);
         this.searchTimeoutMs = this.getConfiguredSearchTimeoutMs(config.searchTimeoutMs);
 
-        const configuredCustomExtensions = this.getCustomExtensionsFromConfig();
+        const configuredCustomExtensions = this.getGlobalCustomExtensionsFromConfig();
 
         // Combine default extensions with config and global extensions.
         const allSupportedExtensions = [
@@ -353,7 +356,7 @@ export class Context {
         // Remove duplicates
         this.supportedExtensions = [...new Set(this.normalizeExtensions(allSupportedExtensions))];
 
-        const configuredCustomIgnorePatterns = this.getCustomIgnorePatternsFromConfig();
+        const configuredCustomIgnorePatterns = this.getGlobalCustomIgnorePatternsFromConfig();
 
         // Start with default ignore patterns and persistent config patterns.
         const allIgnorePatterns = [
@@ -411,9 +414,10 @@ export class Context {
      * Get supported extensions for the current operation without mutating
      * the Context's persistent extension list.
      */
-    getEffectiveSupportedExtensions(additionalExtensions: string[] = []): string[] {
+    getEffectiveSupportedExtensions(additionalExtensions: string[] = [], codebasePath?: string): string[] {
         const normalizedExtensions = this.normalizeExtensions(additionalExtensions);
-        return [...new Set([...this.supportedExtensions, ...normalizedExtensions])];
+        const configuredExtensions = codebasePath ? this.getCustomExtensionsFromConfig(codebasePath) : [];
+        return [...new Set([...this.supportedExtensions, ...configuredExtensions, ...normalizedExtensions])];
     }
 
     /**
@@ -468,7 +472,7 @@ export class Context {
             additionalIgnorePatterns,
             requestOptions.additionalIgnoreFiles || []
         );
-        const supportedExtensions = this.getEffectiveSupportedExtensions(additionalSupportedExtensions);
+        const supportedExtensions = this.getEffectiveSupportedExtensions(additionalSupportedExtensions, codebasePath);
         const codeFiles = await this.getCodeFiles(
             codebasePath,
             ignorePatterns,
@@ -634,11 +638,11 @@ export class Context {
         // 2. Check and prepare vector collection
         progressCallback?.({ phase: 'Preparing collection...', current: 0, total: 100, percentage: 0 });
         console.log(`Debug2: Preparing vector collection for codebase${forceReindex ? ' (FORCE REINDEX)' : ''}`);
-        await this.prepareCollection(codebasePath, forceReindex, splitter);
+        await this.prepareCollection(codebasePath, forceReindex, splitter, { rejectExistingFullIndex: true });
 
         // 3. Recursively traverse codebase to get all supported files
         progressCallback?.({ phase: 'Scanning files...', current: 5, total: 100, percentage: 5 });
-        const supportedExtensions = this.getEffectiveSupportedExtensions(additionalSupportedExtensions);
+        const supportedExtensions = this.getEffectiveSupportedExtensions(additionalSupportedExtensions, codebasePath);
         const codeFiles = await this.getCodeFiles(
             codebasePath,
             ignorePatterns,
@@ -711,7 +715,7 @@ export class Context {
         // Recreate the synchronizer on each sync so newly added or edited
         // ignore files affect the next incremental check without a restart.
         const ignorePatterns = await this.loadIgnorePatterns(codebasePath, additionalIgnorePatterns, additionalIgnoreFiles);
-        const supportedExtensions = this.getEffectiveSupportedExtensions(additionalSupportedExtensions);
+        const supportedExtensions = this.getEffectiveSupportedExtensions(additionalSupportedExtensions, codebasePath);
         const currentSynchronizer = new FileSynchronizer(codebasePath, ignorePatterns, supportedExtensions, { maxDepth });
         await currentSynchronizer.initialize();
         this.synchronizers.set(collectionName, currentSynchronizer);
@@ -731,13 +735,14 @@ export class Context {
 
         const filesToIndex = [...added, ...modified].map(f => path.join(codebasePath, f));
         if (filesToIndex.length > 0) {
-            const effectiveLines = await this.countEffectiveLines(filesToIndex);
-            if (!options.skipEffectiveLineLimit && effectiveLines > AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT) {
+            const { effectiveLines, changedFiles } = currentSynchronizer.getPendingEffectiveLineIncrease(added, modified);
+            const effectiveLineLimit = this.getAutomaticIncrementalEffectiveLineLimit(codebasePath);
+            if (!options.skipEffectiveLineLimit && effectiveLines > effectiveLineLimit) {
                 currentSynchronizer.discardPendingChanges();
                 throw new IncrementalIndexTooLargeError(
                     effectiveLines,
-                    AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT,
-                    filesToIndex.length
+                    effectiveLineLimit,
+                    changedFiles
                 );
             }
         }
@@ -792,76 +797,21 @@ export class Context {
 
     private async countEffectiveLinesInFile(filePath: string): Promise<number> {
         const content = await fs.promises.readFile(filePath, 'utf-8');
-        const lines = content.split(/\r?\n/);
-        let effectiveLines = 0;
-        let inBlockComment = false;
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                continue;
-            }
-
-            const result = this.stripLeadingCommentOnlySyntax(trimmed, inBlockComment);
-            inBlockComment = result.inBlockComment;
-            if (result.hasCode) {
-                effectiveLines++;
-            }
-        }
-
-        return effectiveLines;
+        return countEffectiveLinesInContent(content);
     }
 
-    private stripLeadingCommentOnlySyntax(line: string, inBlockComment: boolean): { hasCode: boolean; inBlockComment: boolean } {
-        let remaining = line;
-        let blockCommentOpen = inBlockComment;
-
-        while (remaining.length > 0) {
-            if (blockCommentOpen) {
-                const blockEnd = remaining.indexOf('*/');
-                if (blockEnd === -1) {
-                    return { hasCode: false, inBlockComment: true };
-                }
-                remaining = remaining.slice(blockEnd + 2).trimStart();
-                blockCommentOpen = false;
-                continue;
-            }
-
-            if (remaining.startsWith('/*')) {
-                const blockEnd = remaining.indexOf('*/', 2);
-                if (blockEnd === -1) {
-                    return { hasCode: false, inBlockComment: true };
-                }
-                remaining = remaining.slice(blockEnd + 2).trimStart();
-                continue;
-            }
-
-            if (remaining.startsWith('<!--')) {
-                const htmlCommentEnd = remaining.indexOf('-->', 4);
-                if (htmlCommentEnd === -1) {
-                    return { hasCode: false, inBlockComment: false };
-                }
-                remaining = remaining.slice(htmlCommentEnd + 3).trimStart();
-                continue;
-            }
-
-            if (
-                remaining.startsWith('//') ||
-                remaining.startsWith('#') ||
-                remaining.startsWith('--')
-            ) {
-                return { hasCode: false, inBlockComment: false };
-            }
-
-            return { hasCode: true, inBlockComment: false };
+    private getAutomaticIncrementalEffectiveLineLimit(codebasePath: string): number {
+        const configured = configManager.getNumber('automaticIncrementalEffectiveLineLimit', codebasePath);
+        if (Number.isFinite(configured) && configured! >= 0) {
+            return Math.floor(configured!);
         }
 
-        return { hasCode: false, inBlockComment: blockCommentOpen };
+        return DEFAULT_AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT;
     }
 
     private async deleteFileChunks(collectionName: string, relativePath: string): Promise<void> {
-        // Escape backslashes for Milvus query expression (Windows path compatibility)
-        const escapedPath = relativePath.replace(/\\/g, '\\\\');
+        const normalizedPath = relativePath.replace(/\\/g, '/');
+        const escapedPath = this.escapeFilterString(normalizedPath);
         const results = await this.vectorDatabase.query(
             collectionName,
             `relativePath == "${escapedPath}"`,
@@ -904,479 +854,15 @@ export class Context {
         symbol: string,
         options: SymbolTraceOptions = {}
     ): Promise<SymbolTraceResult> {
-        const normalizedSymbol = symbol.trim();
-        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(normalizedSymbol)) {
-            throw new Error('traceSymbol requires a valid identifier symbol.');
-        }
-
-        const traceOptions = this.normalizeSymbolTraceOptions(options);
         const ignorePatterns = await this.loadIgnorePatterns(codebasePath);
         const allFiles = await this.getCodeFiles(codebasePath, ignorePatterns);
-        const startPath = this.normalizeTraceStartPath(codebasePath, traceOptions.startPath);
-        const orderedFiles = this.orderTraceFiles(allFiles, codebasePath, startPath);
-        const filesToScan = orderedFiles.slice(0, traceOptions.maxFiles);
-        const escapedSymbol = this.escapeRegExp(normalizedSymbol);
-        const symbolRegex = new RegExp(`\\b${escapedSymbol}\\b`);
-        const definitions: SymbolTraceEvidence[] = [];
-        const references: SymbolTraceEvidence[] = [];
-        const imports: SymbolTraceEvidence[] = [];
-        const exports: SymbolTraceEvidence[] = [];
-        const relatedTests: SymbolTraceEvidence[] = [];
-        const warnings: string[] = [];
-        const referenceCollectionLimit = Math.min(traceOptions.maxReferences * 4, 1000);
-        let truncated = orderedFiles.length > filesToScan.length;
-
-        for (const filePath of filesToScan) {
-            let content: string;
-            try {
-                content = await fs.promises.readFile(filePath, 'utf-8');
-            } catch (error) {
-                warnings.push(`Unable to read ${path.relative(codebasePath, filePath).replace(/\\/g, '/')}: ${error instanceof Error ? error.message : String(error)}`);
-                continue;
-            }
-
-            const relativePath = path.relative(codebasePath, filePath).replace(/\\/g, '/');
-            const extension = path.posix.extname(relativePath);
-            const fileRole = classifyFileRole(relativePath, extension, content);
-            const localAliases = this.extractSymbolAliases(content, escapedSymbol);
-            const lineMatchers = this.createTraceLineMatchers(escapedSymbol, localAliases);
-            const lines = content.split(/\r?\n/);
-            const lineContexts = this.extractTraceLineContexts(lines);
-
-            for (let index = 0; index < lines.length; index++) {
-                const line = lines[index];
-                const preview = line.trim();
-                if (preview.length === 0) {
-                    continue;
-                }
-
-                const lineNumber = index + 1;
-                const isDefinition = this.isTraceDefinitionLine(line, escapedSymbol);
-                const isImport = /\bimport\b/.test(line) && symbolRegex.test(line);
-                const isExport = /\bexport\b/.test(line) && symbolRegex.test(line);
-                const moduleSpecifier = isImport || isExport ? this.extractTraceModuleSpecifier(line) : undefined;
-                const resolvedPath = moduleSpecifier
-                    ? this.resolveTraceModulePath(codebasePath, relativePath, moduleSpecifier)
-                    : undefined;
-                const matchedReference = lineMatchers.find(matcher => matcher.regex.test(line));
-                const lineContext = lineContexts[index] ?? {};
-                const callTarget = matchedReference
-                    ? this.extractTraceCallTarget(line, normalizedSymbol, matchedReference.label)
-                    : undefined;
-
-                if (isDefinition) {
-                    this.pushTraceEvidence(definitions, {
-                        kind: 'definition',
-                        relativePath,
-                        line: lineNumber,
-                        preview,
-                        matchedText: normalizedSymbol,
-                        enclosingSymbol: lineContext.enclosingSymbol
-                    }, traceOptions.maxReferences);
-                }
-
-                if (isImport) {
-                    this.pushTraceEvidence(imports, {
-                        kind: 'import',
-                        relativePath,
-                        line: lineNumber,
-                        preview,
-                        matchedText: normalizedSymbol,
-                        moduleSpecifier,
-                        resolvedPath,
-                        enclosingSymbol: lineContext.enclosingSymbol
-                    }, traceOptions.maxReferences);
-                }
-
-                if (isExport) {
-                    this.pushTraceEvidence(exports, {
-                        kind: 'export',
-                        relativePath,
-                        line: lineNumber,
-                        preview,
-                        matchedText: normalizedSymbol,
-                        moduleSpecifier,
-                        resolvedPath,
-                        enclosingSymbol: lineContext.enclosingSymbol
-                    }, traceOptions.maxReferences);
-                }
-
-                if (matchedReference && !isDefinition && !isImport && !isExport && !this.isTraceCommentOnlyLine(preview)) {
-                    const added = this.pushTraceEvidence(references, {
-                        kind: 'reference',
-                        relativePath,
-                        line: lineNumber,
-                        preview,
-                        matchedText: matchedReference.label,
-                        enclosingSymbol: lineContext.enclosingSymbol,
-                        callTarget
-                    }, referenceCollectionLimit);
-                    truncated = truncated || !added;
-                }
-
-                if (
-                    traceOptions.includeTests &&
-                    fileRole === 'test' &&
-                    symbolRegex.test(line) &&
-                    !this.isTraceCommentOnlyLine(preview)
-                ) {
-                    this.pushTraceEvidence(relatedTests, {
-                        kind: 'related_test',
-                        relativePath,
-                        line: lineNumber,
-                        preview,
-                        matchedText: normalizedSymbol,
-                        enclosingSymbol: lineContext.enclosingSymbol
-                    }, traceOptions.maxReferences);
-                }
-            }
-        }
-
-        const orderedReferences = this.orderTraceReferences(references, startPath, traceOptions);
-        truncated = truncated || orderedReferences.length > traceOptions.maxReferences;
-
-        return {
-            symbol: normalizedSymbol,
+        return traceSymbolInFiles({
             codebasePath,
-            definitions,
-            references: orderedReferences.slice(0, traceOptions.maxReferences),
-            imports,
-            exports,
-            relatedTests,
-            scannedFiles: filesToScan.length,
-            truncated,
-            warnings
-        };
-    }
-
-    private normalizeSymbolTraceOptions(options: SymbolTraceOptions): Required<SymbolTraceOptions> {
-        const maxFiles = Number.isFinite(options.maxFiles) && (options.maxFiles ?? 0) > 0
-            ? Math.min(Math.floor(options.maxFiles ?? 0), 2000)
-            : 1000;
-        const maxReferences = Number.isFinite(options.maxReferences) && (options.maxReferences ?? 0) > 0
-            ? Math.min(Math.floor(options.maxReferences ?? 0), 200)
-            : 40;
-        const startLine = Number.isFinite(options.startLine) && (options.startLine ?? 0) > 0
-            ? Math.floor(options.startLine ?? 0)
-            : 0;
-        const endLine = Number.isFinite(options.endLine) && (options.endLine ?? 0) >= startLine && startLine > 0
-            ? Math.floor(options.endLine ?? 0)
-            : 0;
-
-        return {
-            startPath: typeof options.startPath === 'string' ? options.startPath : '',
-            startLine,
-            endLine,
-            maxFiles,
-            maxReferences,
-            includeTests: options.includeTests !== false
-        };
-    }
-
-    private normalizeTraceStartPath(codebasePath: string, startPath: string): string {
-        if (startPath.trim().length === 0) {
-            return '';
-        }
-
-        const absoluteStartPath = path.isAbsolute(startPath)
-            ? path.normalize(startPath)
-            : path.resolve(codebasePath, startPath);
-        const relativePath = path.relative(codebasePath, absoluteStartPath);
-        if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-            return '';
-        }
-
-        return relativePath.replace(/\\/g, '/');
-    }
-
-    private orderTraceFiles(files: string[], codebasePath: string, startPath: string): string[] {
-        return [...files].sort((a, b) => {
-            const relativeA = path.relative(codebasePath, a).replace(/\\/g, '/');
-            const relativeB = path.relative(codebasePath, b).replace(/\\/g, '/');
-            const priorityA = startPath.length > 0 && relativeA === startPath ? 0 : 1;
-            const priorityB = startPath.length > 0 && relativeB === startPath ? 0 : 1;
-            return priorityA - priorityB || relativeA.localeCompare(relativeB);
+            symbol,
+            options,
+            files: allFiles,
+            supportedExtensions: this.supportedExtensions
         });
-    }
-
-    private extractSymbolAliases(content: string, escapedSymbol: string): string[] {
-        const aliases = new Set<string>();
-        const aliasPatterns = [
-            new RegExp(`\\b([A-Za-z_$][A-Za-z0-9_$]*)\\s*:\\s*${escapedSymbol}\\b`, 'g'),
-            new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*new\\s+${escapedSymbol}\\b`, 'g'),
-            new RegExp(`\\bthis\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*new\\s+${escapedSymbol}\\b`, 'g')
-        ];
-
-        for (const pattern of aliasPatterns) {
-            let match: RegExpExecArray | null;
-            while ((match = pattern.exec(content)) !== null) {
-                aliases.add(match[1]);
-            }
-        }
-
-        return [...aliases];
-    }
-
-    private extractTraceLineContexts(lines: string[]): TraceLineContext[] {
-        const contexts: TraceLineContext[] = [];
-        let braceDepth = 0;
-        let currentClass: { name: string; depth: number } | undefined;
-        let currentScope: { name: string; depth: number } | undefined;
-
-        for (let index = 0; index < lines.length; index++) {
-            const line = lines[index];
-            const trimmed = line.trim();
-
-            while (currentScope && braceDepth < currentScope.depth) {
-                currentScope = undefined;
-            }
-            while (currentClass && braceDepth < currentClass.depth) {
-                currentClass = undefined;
-            }
-
-            const classMatch = trimmed.match(/\b(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/);
-            if (classMatch) {
-                currentClass = { name: classMatch[1], depth: braceDepth + 1 };
-            }
-
-            const functionName = this.extractTraceEnclosingFunctionName(trimmed);
-            if (functionName) {
-                currentScope = {
-                    name: currentClass ? `${currentClass.name}.${functionName}` : functionName,
-                    depth: braceDepth + 1
-                };
-            }
-
-            contexts[index] = {
-                enclosingSymbol: currentScope?.name ?? currentClass?.name
-            };
-
-            braceDepth += this.countTraceBraceDelta(line);
-            if (braceDepth < 0) {
-                braceDepth = 0;
-            }
-        }
-
-        return contexts;
-    }
-
-    private orderTraceReferences(
-        references: SymbolTraceEvidence[],
-        startPath: string,
-        options: Required<SymbolTraceOptions>
-    ): SymbolTraceEvidence[] {
-        return [...references].sort((a, b) => {
-            const rangePriority = Number(this.isPreferredTraceReference(b, startPath, options))
-                - Number(this.isPreferredTraceReference(a, startPath, options));
-            if (rangePriority !== 0) {
-                return rangePriority;
-            }
-
-            const pathPriority = Number(startPath.length > 0 && b.relativePath === startPath)
-                - Number(startPath.length > 0 && a.relativePath === startPath);
-            if (pathPriority !== 0) {
-                return pathPriority;
-            }
-
-            const callPriority = Number(Boolean(b.callTarget)) - Number(Boolean(a.callTarget));
-            if (callPriority !== 0) {
-                return callPriority;
-            }
-
-            const callerPriority = Number(Boolean(b.enclosingSymbol)) - Number(Boolean(a.enclosingSymbol));
-            if (callerPriority !== 0) {
-                return callerPriority;
-            }
-
-            return a.relativePath.localeCompare(b.relativePath) || a.line - b.line;
-        });
-    }
-
-    private isPreferredTraceReference(
-        reference: SymbolTraceEvidence,
-        startPath: string,
-        options: Required<SymbolTraceOptions>
-    ): boolean {
-        return startPath.length > 0
-            && reference.relativePath === startPath
-            && options.startLine > 0
-            && options.endLine > 0
-            && reference.line >= options.startLine
-            && reference.line <= options.endLine;
-    }
-
-    private extractTraceEnclosingFunctionName(trimmedLine: string): string | undefined {
-        const patterns = [
-            /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/,
-            /\b(?:async\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*[:=]\s*(?:async\s*)?\([^)]*\)\s*=>/,
-            /^(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|async\s+|override\s+|abstract\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*(?::\s*[^=]+)?\s*\{/
-        ];
-
-        for (const pattern of patterns) {
-            const match = trimmedLine.match(pattern);
-            if (match?.[1] && !this.isUnhelpfulTraceScopeName(match[1])) {
-                return match[1];
-            }
-        }
-
-        return undefined;
-    }
-
-    private isUnhelpfulTraceScopeName(name: string): boolean {
-        return new Set(['if', 'for', 'while', 'switch', 'catch', 'function']).has(name);
-    }
-
-    private countTraceBraceDelta(line: string): number {
-        let delta = 0;
-        let quote: string | undefined;
-        let escaped = false;
-        for (const char of line) {
-            if (quote) {
-                if (escaped) {
-                    escaped = false;
-                } else if (char === '\\') {
-                    escaped = true;
-                } else if (char === quote) {
-                    quote = undefined;
-                }
-                continue;
-            }
-
-            if (char === '"' || char === "'" || char === '`') {
-                quote = char;
-            } else if (char === '{') {
-                delta += 1;
-            } else if (char === '}') {
-                delta -= 1;
-            }
-        }
-
-        return delta;
-    }
-
-    private extractTraceCallTarget(line: string, symbol: string, matchedLabel: string): string | undefined {
-        const escapedLabel = this.escapeRegExp(matchedLabel);
-        const memberCall = line.match(new RegExp(`(?:\\bthis\\.)?\\b${escapedLabel}\\b\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\(`));
-        if (memberCall?.[1]) {
-            return `${symbol}.${memberCall[1]}`;
-        }
-
-        const directCall = line.match(new RegExp(`\\b${this.escapeRegExp(symbol)}\\s*\\(`));
-        if (directCall) {
-            return symbol;
-        }
-
-        return undefined;
-    }
-
-    private extractTraceModuleSpecifier(line: string): string | undefined {
-        const fromMatch = line.match(/\b(?:import|export)\b[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/);
-        if (fromMatch?.[1]) {
-            return fromMatch[1];
-        }
-
-        const sideEffectImportMatch = line.match(/\bimport\s*['"]([^'"]+)['"]/);
-        return sideEffectImportMatch?.[1];
-    }
-
-    private resolveTraceModulePath(
-        codebasePath: string,
-        importerRelativePath: string,
-        moduleSpecifier: string
-    ): string | undefined {
-        if (!moduleSpecifier.startsWith('.') && !moduleSpecifier.startsWith('/')) {
-            return undefined;
-        }
-
-        const importerAbsolutePath = path.resolve(codebasePath, importerRelativePath);
-        const importerDir = path.dirname(importerAbsolutePath);
-        const absoluteBase = moduleSpecifier.startsWith('/')
-            ? path.resolve(codebasePath, moduleSpecifier.replace(/^\/+/, ''))
-            : path.resolve(importerDir, moduleSpecifier);
-        const relativeBase = path.relative(codebasePath, absoluteBase);
-        if (relativeBase.startsWith('..') || path.isAbsolute(relativeBase)) {
-            return undefined;
-        }
-
-        for (const candidate of this.getTraceModulePathCandidates(absoluteBase)) {
-            if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-                return path.relative(codebasePath, candidate).replace(/\\/g, '/');
-            }
-        }
-
-        return undefined;
-    }
-
-    private getTraceModulePathCandidates(absoluteBase: string): string[] {
-        const candidates = new Set<string>();
-        const existingExtension = path.extname(absoluteBase);
-        const extensions = this.getTraceModuleExtensions();
-
-        candidates.add(absoluteBase);
-        if (existingExtension.length === 0) {
-            for (const extension of extensions) {
-                candidates.add(`${absoluteBase}${extension}`);
-            }
-        }
-
-        for (const extension of extensions) {
-            candidates.add(path.join(absoluteBase, `index${extension}`));
-        }
-
-        return [...candidates];
-    }
-
-    private getTraceModuleExtensions(): string[] {
-        const commonExtensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs'];
-        return [...new Set([...this.supportedExtensions, ...commonExtensions])];
-    }
-
-    private createTraceLineMatchers(escapedSymbol: string, aliases: string[]): Array<{ regex: RegExp; label: string }> {
-        return [
-            { regex: new RegExp(`\\b${escapedSymbol}\\b`), label: escapedSymbol.replace(/\\/g, '') },
-            ...aliases.map(alias => ({
-                regex: new RegExp(`(?:\\bthis\\.)?\\b${this.escapeRegExp(alias)}\\b`),
-                label: alias
-            }))
-        ];
-    }
-
-    private isTraceDefinitionLine(line: string, escapedSymbol: string): boolean {
-        const definitionPatterns = [
-            new RegExp(`\\b(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:class|interface|function|type|enum|const|let|var)\\s+${escapedSymbol}\\b`),
-            new RegExp(`^\\s*(?:public\\s+|private\\s+|protected\\s+|static\\s+|readonly\\s+|async\\s+|override\\s+|abstract\\s+)*${escapedSymbol}\\s*\\(`),
-            new RegExp(`\\b(?:async\\s+)?def\\s+${escapedSymbol}\\s*\\(`),
-            new RegExp(`\\bfunc\\s+(?:\\([^)]+\\)\\s*)?${escapedSymbol}\\s*\\(`),
-            new RegExp(`\\b(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?fn\\s+${escapedSymbol}\\s*\\(`),
-            new RegExp(`\\b(?:pub(?:\\([^)]*\\))?\\s+)?(?:struct|enum|trait|mod)\\s+${escapedSymbol}\\b`)
-        ];
-
-        return definitionPatterns.some(pattern => pattern.test(line));
-    }
-
-    private isTraceCommentOnlyLine(preview: string): boolean {
-        return preview.startsWith('//')
-            || preview.startsWith('*')
-            || preview.startsWith('/*')
-            || preview.startsWith('#')
-            || preview.startsWith('<!--');
-    }
-
-    private pushTraceEvidence(
-        evidence: SymbolTraceEvidence[],
-        item: SymbolTraceEvidence,
-        limit: number
-    ): boolean {
-        if (evidence.length >= limit) {
-            return false;
-        }
-
-        evidence.push(item);
-        return true;
-    }
-
-    private escapeRegExp(value: string): string {
-        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
     private async performSemanticSearch(
@@ -2755,7 +2241,12 @@ export class Context {
     /**
      * Prepare vector collection
      */
-    private async prepareCollection(codebasePath: string, forceReindex: boolean = false, splitter: Splitter = this.codeSplitter): Promise<void> {
+    private async prepareCollection(
+        codebasePath: string,
+        forceReindex: boolean = false,
+        splitter: Splitter = this.codeSplitter,
+        options: { rejectExistingFullIndex?: boolean } = {}
+    ): Promise<void> {
         const isHybrid = this.getIsHybrid();
         const collectionType = isHybrid === true ? 'hybrid vector' : 'vector';
         console.log(`[Context] 🔧 Preparing ${collectionType} collection for codebase: ${codebasePath}${forceReindex ? ' (FORCE REINDEX)' : ''}`);
@@ -2765,6 +2256,11 @@ export class Context {
         const collectionExists = await this.vectorDatabase.hasCollection(collectionName);
 
         if (collectionExists && !forceReindex) {
+            if (options.rejectExistingFullIndex) {
+                throw new ExistingCollectionFullIndexError(
+                    `Collection '${collectionName}' already exists for '${codebasePath}'. Refusing ordinary full indexing because it would append chunks without removing stale rows. Use incremental indexing to sync changes, or use force=true to rebuild the collection.`
+                );
+            }
             await this.validateExistingCollectionEmbedding(collectionName);
             if (isHybrid === true) {
                 console.log(`📋 Hybrid collection ${collectionName} already exists, ensuring indexes are ready`);
@@ -3072,50 +2568,52 @@ export class Context {
 
             const filePath = filePaths[i];
 
+            let content: string;
+            let chunks: CodeChunk[];
             try {
-                const content = await fs.promises.readFile(filePath, 'utf-8');
+                content = await fs.promises.readFile(filePath, 'utf-8');
                 const language = this.getLanguageFromExtension(path.extname(filePath));
-                const chunks = await splitter.split(content, language, filePath);
-
-                // Log files with many chunks or large content
-                if (chunks.length > 50) {
-                    console.warn(`[Context] ⚠️  File ${filePath} generated ${chunks.length} chunks (${Math.round(content.length / 1024)}KB)`);
-                } else if (content.length > 100000) {
-                    console.log(`📄 Large file ${filePath}: ${Math.round(content.length / 1024)}KB -> ${chunks.length} chunks`);
-                }
-
-                // Add chunks to buffer
-                for (const chunk of chunks) {
-                    chunkBuffer.push({ chunk, codebasePath });
-                    totalChunks++;
-
-                    // Process batch when buffer reaches EMBEDDING_BATCH_SIZE
-                    if (chunkBuffer.length >= EMBEDDING_BATCH_SIZE) {
-                        const batch = chunkBuffer;
-                        chunkBuffer = [];
-                        await enqueueChunkBuffer(batch);
-                    }
-
-                    // Check if chunk limit is reached
-                    if (totalChunks >= CHUNK_LIMIT) {
-                        console.warn(`[Context] ⚠️  Chunk limit of ${CHUNK_LIMIT} reached. Stopping indexing.`);
-                        limitReached = true;
-                        break; // Exit the inner loop (over chunks)
-                    }
-                }
-
-                processedFiles++;
-                onFileProcessed?.(filePath, i + 1, filePaths.length);
-
-                if (limitReached) {
-                    break; // Exit the outer loop (over files)
-                }
-
+                chunks = await splitter.split(content, language, filePath);
             } catch (error) {
                 if (error instanceof EmbeddingError) {
                     throw error;
                 }
                 console.warn(`[Context] ⚠️  Skipping file ${filePath}: ${error}`);
+                continue;
+            }
+
+            // Log files with many chunks or large content
+            if (chunks.length > 50) {
+                console.warn(`[Context] ⚠️  File ${filePath} generated ${chunks.length} chunks (${Math.round(content.length / 1024)}KB)`);
+            } else if (content.length > 100000) {
+                console.log(`📄 Large file ${filePath}: ${Math.round(content.length / 1024)}KB -> ${chunks.length} chunks`);
+            }
+
+            // Add chunks to buffer
+            for (const chunk of chunks) {
+                chunkBuffer.push({ chunk, codebasePath });
+                totalChunks++;
+
+                // Process batch when buffer reaches EMBEDDING_BATCH_SIZE
+                if (chunkBuffer.length >= EMBEDDING_BATCH_SIZE) {
+                    const batch = chunkBuffer;
+                    chunkBuffer = [];
+                    await enqueueChunkBuffer(batch);
+                }
+
+                // Check if chunk limit is reached
+                if (totalChunks >= CHUNK_LIMIT) {
+                    console.warn(`[Context] ⚠️  Chunk limit of ${CHUNK_LIMIT} reached. Stopping indexing.`);
+                    limitReached = true;
+                    break; // Exit the inner loop (over chunks)
+                }
+            }
+
+            processedFiles++;
+            onFileProcessed?.(filePath, i + 1, filePaths.length);
+
+            if (limitReached) {
+                break; // Exit the outer loop (over files)
             }
         }
 
@@ -3482,8 +2980,10 @@ export class Context {
             const globalIgnorePatterns = await this.loadGlobalIgnoreFile();
             fileBasedPatterns.push(...globalIgnorePatterns);
 
+            const configuredIgnorePatterns = this.getCustomIgnorePatternsFromConfig(codebasePath);
             const effectiveIgnorePatterns = this.dedupePatterns([
                 ...this.baseIgnorePatterns,
+                ...configuredIgnorePatterns,
                 ...additionalIgnorePatterns,
                 ...fileBasedPatterns
             ]);
@@ -3492,8 +2992,8 @@ export class Context {
             // value to avoid shared-state leakage between background tasks.
             this.ignorePatterns = effectiveIgnorePatterns;
 
-            if (fileBasedPatterns.length > 0 || additionalIgnorePatterns.length > 0) {
-                console.log(`[Context] 🚫 Loaded total ${fileBasedPatterns.length} ignore patterns from all ignore files and ${additionalIgnorePatterns.length} request ignore patterns`);
+            if (fileBasedPatterns.length > 0 || additionalIgnorePatterns.length > 0 || configuredIgnorePatterns.length > 0) {
+                console.log(`[Context] 🚫 Loaded total ${fileBasedPatterns.length} ignore patterns from all ignore files, ${configuredIgnorePatterns.length} config ignore patterns, and ${additionalIgnorePatterns.length} request ignore patterns`);
             } else {
                 console.log('📄 No ignore files found, using base ignore patterns');
             }
@@ -3504,6 +3004,7 @@ export class Context {
             // previously loaded codebase-specific patterns.
             const fallbackPatterns = this.dedupePatterns([
                 ...this.baseIgnorePatterns,
+                ...this.getCustomIgnorePatternsFromConfig(codebasePath),
                 ...additionalIgnorePatterns
             ]);
             this.ignorePatterns = fallbackPatterns;
@@ -3668,8 +3169,17 @@ export class Context {
      * Get custom extensions from global config.
      * @returns Array of custom extensions
      */
-    private getCustomExtensionsFromConfig(): string[] {
-        const configuredExtensions = configManager.getStringArray('customExtensions');
+    private getCustomExtensionsFromConfig(projectRoot?: string): string[] {
+        const configuredExtensions = configManager.getStringArray('customExtensions', projectRoot);
+        return this.normalizeCustomExtensions(configuredExtensions);
+    }
+
+    private getGlobalCustomExtensionsFromConfig(): string[] {
+        const configuredExtensions = configManager.getGlobalStringArray('customExtensions');
+        return this.normalizeCustomExtensions(configuredExtensions);
+    }
+
+    private normalizeCustomExtensions(configuredExtensions: string[]): string[] {
         if (configuredExtensions.length === 0) {
             return [];
         }
@@ -3691,8 +3201,17 @@ export class Context {
      * Get custom ignore patterns from global config.
      * @returns Array of custom ignore patterns
      */
-    private getCustomIgnorePatternsFromConfig(): string[] {
-        const configuredIgnorePatterns = configManager.getStringArray('customIgnorePatterns');
+    private getCustomIgnorePatternsFromConfig(projectRoot?: string): string[] {
+        const configuredIgnorePatterns = configManager.getStringArray('customIgnorePatterns', projectRoot);
+        return this.normalizeCustomIgnorePatterns(configuredIgnorePatterns);
+    }
+
+    private getGlobalCustomIgnorePatternsFromConfig(): string[] {
+        const configuredIgnorePatterns = configManager.getGlobalStringArray('customIgnorePatterns');
+        return this.normalizeCustomIgnorePatterns(configuredIgnorePatterns);
+    }
+
+    private normalizeCustomIgnorePatterns(configuredIgnorePatterns: string[]): string[] {
         if (configuredIgnorePatterns.length === 0) {
             return [];
         }

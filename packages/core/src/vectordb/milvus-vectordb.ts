@@ -8,13 +8,21 @@ import {
     HybridSearchOptions,
     HybridSearchResult,
     DEFAULT_SEARCH_OUTPUT_FIELDS,
-    STRUCTURED_METADATA_FIELDS,
 } from './types';
 import { ClusterManager } from './zilliz-utils';
 import { formatErrorDetails, milvusOperationError } from '../utils/error-format';
 import { isUnsupportedSparseVectorError, milvusHybridCompatibilityError } from './milvus-compatibility';
 import { configManager } from '../utils/config-manager';
 import { withSystemProxyPolicy } from '../utils/proxy-env';
+import {
+    STRUCTURED_STRING_FIELD_DEFINITIONS,
+    createSchemaMismatchError,
+    createStructuredInsertRow as createInsertRow,
+    getStructuredDocumentFields,
+    isMissingStructuredFieldMessage,
+    mergeStructuredMetadata,
+    requireCurrentStructuredSchema
+} from './milvus-structured-fields';
 
 export interface MilvusConfig {
     address?: string;
@@ -25,28 +33,15 @@ export interface MilvusConfig {
     useSystemProxy?: boolean;
 }
 
-const STRUCTURED_STRING_FIELD_SCHEMAS = [
-    { name: 'primarySymbol', description: 'Primary symbol or section identifier', max_length: 512 },
-    { name: 'symbolKind', description: 'Symbol kind from splitter metadata', max_length: 64 },
-    { name: 'chunkKind', description: 'Chunk kind from splitter metadata', max_length: 64 },
-    { name: 'fileRole', description: 'File role inferred from path and extension', max_length: 64 },
-    { name: 'basename', description: 'File basename without extension', max_length: 255 },
-    { name: 'pathSegment0', description: 'Path segment 0', max_length: 255 },
-    { name: 'pathSegment1', description: 'Path segment 1', max_length: 255 },
-    { name: 'pathSegment2', description: 'Path segment 2', max_length: 255 },
-    { name: 'pathSegment3', description: 'Path segment 3', max_length: 255 },
-    { name: 'pathSegment4', description: 'Path segment 4', max_length: 255 },
-] as const;
-
 const COLLECTION_CREATE_TIMEOUT_MS = 120000;
 
 function createStructuredFieldSchemas() {
     return [
-        ...STRUCTURED_STRING_FIELD_SCHEMAS.map(field => ({
+        ...STRUCTURED_STRING_FIELD_DEFINITIONS.map(field => ({
             name: field.name,
             description: field.description,
             data_type: DataType.VarChar,
-            max_length: field.max_length,
+            max_length: field.maxLength,
         })),
         {
             name: 'isDefinition',
@@ -56,89 +51,10 @@ function createStructuredFieldSchemas() {
     ];
 }
 
-function getStructuredFieldValue(document: VectorDocument, field: string): string | boolean {
-    if (field === 'isDefinition') {
-        return document.isDefinition === true;
-    }
-
-    const value = document[field as keyof VectorDocument];
-    return typeof value === 'string' ? value : '';
-}
-
-function createInsertRow(document: VectorDocument): Record<string, any> {
-    const row: Record<string, any> = {
-        id: document.id,
-        vector: document.vector,
-        content: document.content,
-        relativePath: document.relativePath,
-        startLine: document.startLine,
-        endLine: document.endLine,
-        fileExtension: document.fileExtension,
-        metadata: JSON.stringify(document.metadata),
-    };
-
-    for (const field of STRUCTURED_METADATA_FIELDS) {
-        row[field] = getStructuredFieldValue(document, field);
-    }
-
-    return row;
-}
-
-function mergeStructuredMetadata(result: Record<string, any>, metadata: Record<string, any>): Record<string, any> {
-    const merged = { ...metadata };
-    for (const field of STRUCTURED_METADATA_FIELDS) {
-        const value = result[field];
-        if (typeof value === 'string' || typeof value === 'boolean') {
-            merged[field] = value;
-        }
-    }
-    return merged;
-}
-
-function getStructuredDocumentFields(result: Record<string, any>): Partial<VectorDocument> {
-    const fields: Partial<VectorDocument> = {};
-    for (const field of STRUCTURED_METADATA_FIELDS) {
-        const value = result[field];
-        if (typeof value === 'string' || typeof value === 'boolean') {
-            (fields as Record<string, string | boolean>)[field] = value;
-        }
-    }
-    return fields;
-}
-
-function createSchemaMismatchError(collectionName: string, detail: string): Error {
-    return new Error(`Collection '${collectionName}' uses an unsupported search schema. ${detail} Reindex the codebase with force=true to create schema v2 metadata fields.`);
-}
-
 function isMissingStructuredFieldError(error: unknown): boolean {
     const message = formatErrorDetails(error);
-    return STRUCTURED_METADATA_FIELDS.some(field => message.includes(field))
-        && /field|schema|output|not.*exist|not.*found|cannot.*find|undefined/i.test(message);
+    return isMissingStructuredFieldMessage(message);
 }
-
-function requireCurrentStructuredSchema(collectionName: string, description: string): void {
-    const metadataLine = description
-        .split(/\r?\n/)
-        .find((line) => line.startsWith('hitmuxContext:'));
-    if (!metadataLine) {
-        throw createSchemaMismatchError(collectionName, 'Missing hitmuxContext collection metadata.');
-    }
-
-    let metadata: any;
-    try {
-        metadata = JSON.parse(metadataLine.slice('hitmuxContext:'.length));
-    } catch {
-        throw createSchemaMismatchError(collectionName, 'Invalid hitmuxContext collection metadata.');
-    }
-
-    const schemaVersion = metadata?.schemaVersion ?? 1;
-    const metadataVersion = metadata?.metadataVersion ?? 1;
-    if (schemaVersion !== 2 || metadataVersion !== 2) {
-        throw createSchemaMismatchError(collectionName, `Indexed schemaVersion=${schemaVersion}, metadataVersion=${metadataVersion}; current schemaVersion=2, metadataVersion=2.`);
-    }
-}
-
-
 
 export class MilvusVectorDatabase implements VectorDatabase {
     protected config: MilvusConfig;

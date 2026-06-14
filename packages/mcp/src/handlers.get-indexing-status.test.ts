@@ -83,6 +83,54 @@ test("get_indexing_status syncs vector database state before reading the snapsho
     });
 });
 
+test("get_indexing_status refreshes indexed entries written by another MCP process", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const firstSnapshotManager = new SnapshotManager();
+        const secondSnapshotManager = new SnapshotManager();
+        secondSnapshotManager.setCodebaseIndexed(codebasePath, {
+            indexedFiles: 7,
+            totalChunks: 11,
+            status: "completed",
+        });
+        secondSnapshotManager.saveCodebaseSnapshot();
+
+        const handlers = new ToolHandlers({} as any, firstSnapshotManager);
+        (handlers as any).syncIndexedCodebasesFromVectorDatabase = async () => {};
+
+        const result = await handlers.handleGetIndexingStatus({ path: codebasePath });
+
+        assert.equal(result.isError, undefined);
+        assert.match(result.content[0].text, /fully indexed and ready for search/);
+        assert.match(result.content[0].text, /7 files, 11 chunks/);
+        assert.equal(firstSnapshotManager.getCodebaseStatus(codebasePath), "indexed");
+    });
+});
+
+test("get_indexing_status refreshes active indexing entries without marking them failed", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const firstSnapshotManager = new SnapshotManager();
+        const secondSnapshotManager = new SnapshotManager();
+        secondSnapshotManager.setCodebaseIndexing(codebasePath, 37);
+        secondSnapshotManager.saveCodebaseSnapshot();
+
+        const handlers = new ToolHandlers({} as any, firstSnapshotManager);
+        (handlers as any).syncIndexedCodebasesFromVectorDatabase = async () => {};
+
+        const result = await handlers.handleGetIndexingStatus({ path: codebasePath });
+
+        assert.equal(result.isError, undefined);
+        assert.match(result.content[0].text, /currently being indexed/);
+        assert.match(result.content[0].text, /37\.0%/);
+        assert.equal(firstSnapshotManager.getCodebaseStatus(codebasePath), "indexing");
+    });
+});
+
 test("get_indexing_status does not hang when vector database sync collection listing stalls", async () => {
     await withTempHome(async (tempRoot) => {
         const codebasePath = path.join(tempRoot, "repo");
@@ -136,6 +184,47 @@ test("get_indexing_status does not let vector database recovery mark active inde
         assert.match(result.content[0].text, /currently being indexed/);
         assert.match(result.content[0].text, /42\.0%/);
         assert.equal(snapshotManager.getCodebaseStatus(codebasePath), "indexing");
+    });
+});
+
+test("get_indexing_status reports active automatic sync progress for indexed codebases", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(codebasePath, {
+            indexedFiles: 3,
+            totalChunks: 5,
+            status: "completed",
+        });
+
+        const syncStartedAt = Date.now() - 1250;
+        const syncManager = {
+            getSyncStatus: (requestedPath: string) => requestedPath === codebasePath
+                ? {
+                    codebasePath,
+                    phase: "Removed third_party/generated.c",
+                    current: 1,
+                    total: 4,
+                    percentage: 25,
+                    startedAtMs: syncStartedAt,
+                    updatedAtMs: Date.now(),
+                }
+                : undefined,
+        };
+
+        const handlers = new ToolHandlers({} as any, snapshotManager, syncManager);
+        (handlers as any).syncIndexedCodebasesFromVectorDatabase = async () => {};
+
+        const result = await handlers.handleGetIndexingStatus({ path: codebasePath });
+
+        assert.equal(result.isError, undefined);
+        assert.match(result.content[0].text, /Automatic sync in progress/);
+        assert.match(result.content[0].text, /Elapsed: \d+\.\d+s/);
+        assert.match(result.content[0].text, /Progress: 25\.0% \(1\/4\)/);
+        assert.match(result.content[0].text, /Phase: Removed third_party\/generated\.c/);
+        assert.match(result.content[0].text, /Please wait for sync to finish/);
     });
 });
 
