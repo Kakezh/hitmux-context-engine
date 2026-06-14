@@ -17,10 +17,12 @@ export interface HitmuxConfig {
     geminiApiKey?: string;
     geminiBaseUrl?: string;
     openrouterApiKey?: string;
+    embeddingUseSystemProxy?: boolean;
     ollamaModel?: string;
     ollamaHost?: string;
     milvusAddress?: string;
     milvusToken?: string;
+    databaseUseSystemProxy?: boolean;
     milvusUseRestful?: boolean;
     milvusCollectionLimitCheckTimeoutMs?: number;
     zillizBaseUrl?: string;
@@ -37,6 +39,7 @@ export interface HitmuxConfig {
     autoIndexing?: boolean;
     interactiveIndexing?: boolean;
     backgroundSync?: boolean;
+    vectorDatabaseSyncTimeoutMs?: number;
     syncIntervalMs?: number;
     syncLockStaleMs?: number;
     triggerWatcher?: boolean;
@@ -52,6 +55,13 @@ export interface ConfigReadError {
     message: string;
 }
 
+export interface EnsureConfigFileResult {
+    path: string;
+    created: boolean;
+    updated: boolean;
+    appendedKeys: HitmuxConfigKey[];
+}
+
 export class ConfigManager {
     getConfigFilePath(): string {
         return this.getGlobalConfigFilePath();
@@ -63,6 +73,58 @@ export class ConfigManager {
 
     getProjectConfigFilePath(projectRoot: string = process.cwd()): string {
         return path.join(projectRoot, '.hitmux-context-engine', 'config.conf');
+    }
+
+    ensureGlobalConfigFile(): EnsureConfigFileResult {
+        const configPath = this.getGlobalConfigFilePath();
+        if (fs.existsSync(configPath)) {
+            return this.completeExistingGlobalConfigFile(configPath);
+        }
+
+        const configDir = path.dirname(configPath);
+        fs.mkdirSync(configDir, { recursive: true });
+
+        try {
+            fs.writeFileSync(configPath, DEFAULT_GLOBAL_CONFIG_CONTENT, {
+                encoding: 'utf-8',
+                flag: 'wx'
+            });
+            return {
+                path: configPath,
+                created: true,
+                updated: false,
+                appendedKeys: []
+            };
+        } catch (error) {
+            if (isFileAlreadyExistsError(error)) {
+                return this.completeExistingGlobalConfigFile(configPath);
+            }
+            throw error;
+        }
+    }
+
+    private completeExistingGlobalConfigFile(configPath: string): EnsureConfigFileResult {
+        const content = fs.readFileSync(configPath, 'utf-8');
+        const existingKeys = extractConfOptionKeys(content);
+        const missingEntries = CONFIG_COMPLETION_ENTRIES.filter(entry => !existingKeys.has(entry.key));
+        if (missingEntries.length === 0) {
+            return {
+                path: configPath,
+                created: false,
+                updated: false,
+                appendedKeys: []
+            };
+        }
+
+        const completionBlock = formatCompletionBlock(missingEntries);
+        fs.writeFileSync(configPath, `${ensureTrailingNewline(content)}${completionBlock}`, 'utf-8');
+
+        return {
+            path: configPath,
+            created: false,
+            updated: true,
+            appendedKeys: missingEntries.map(entry => entry.key)
+        };
     }
 
     getAll(): HitmuxConfig {
@@ -208,10 +270,301 @@ export class ConfigManager {
 
 export const configManager = new ConfigManager();
 
+interface ConfigCompletionEntry {
+    key: HitmuxConfigKey;
+    description: string;
+    example: string;
+}
+
+const DEFAULT_GLOBAL_CONFIG_HEADER = `# Hitmux Context Engine global configuration.
+# This file was created automatically because no global config file existed.
+# Project config at ./.hitmux-context-engine/config.conf overrides matching fields.
+# Keep secret fields commented until you are ready to use them.
+`;
+
+const DEFAULT_GLOBAL_CONFIG_ACTIVE_CONTENT = `
+# Server metadata.
+# mcpServerName = Hitmux Context Engine MCP Server
+# mcpServerVersion = 1.0.0
+
+# Default embedding provider.
+embeddingProvider = OpenRouter
+embeddingModel = qwen/qwen3-embedding-4b
+# openrouterApiKey = sk-or-your-openrouter-api-key
+
+# Local Milvus default. Change this for remote Milvus or Zilliz Cloud.
+milvusAddress = localhost:19530
+# milvusToken = your-milvus-or-zilliz-token
+
+# System proxy inheritance is disabled by default.
+embeddingUseSystemProxy = false
+databaseUseSystemProxy = false
+
+# Background sync defaults.
+backgroundSync = true
+triggerWatcher = true
+`;
+
+const CONFIG_COMPLETION_ENTRIES: ConfigCompletionEntry[] = [
+    {
+        key: 'mcpServerName',
+        description: 'Server name shown in MCP logs.',
+        example: 'Hitmux Context Engine MCP Server'
+    },
+    {
+        key: 'mcpServerVersion',
+        description: 'Server version shown in MCP logs.',
+        example: '1.0.0'
+    },
+    {
+        key: 'embeddingProvider',
+        description: 'Embedding provider: OpenAI, VoyageAI, Gemini, Ollama, or OpenRouter.',
+        example: 'OpenRouter'
+    },
+    {
+        key: 'embeddingModel',
+        description: 'Embedding model name for the selected provider.',
+        example: 'qwen/qwen3-embedding-4b'
+    },
+    {
+        key: 'embeddingBatchSize',
+        description: 'Embedding batch size for index operations.',
+        example: '32'
+    },
+    {
+        key: 'embeddingConcurrency',
+        description: 'Embedding request concurrency for index operations.',
+        example: '1'
+    },
+    {
+        key: 'openaiApiKey',
+        description: 'OpenAI API key when embeddingProvider = OpenAI.',
+        example: 'sk-your-openai-api-key'
+    },
+    {
+        key: 'openaiBaseUrl',
+        description: 'OpenAI-compatible API base URL for custom endpoints.',
+        example: 'https://api.openai.com/v1'
+    },
+    {
+        key: 'voyageaiApiKey',
+        description: 'VoyageAI API key when embeddingProvider = VoyageAI.',
+        example: 'pa-your-voyageai-api-key'
+    },
+    {
+        key: 'geminiApiKey',
+        description: 'Google AI API key when embeddingProvider = Gemini.',
+        example: 'your-gemini-api-key'
+    },
+    {
+        key: 'geminiBaseUrl',
+        description: 'Gemini API base URL for custom endpoints.',
+        example: 'https://generativelanguage.googleapis.com'
+    },
+    {
+        key: 'openrouterApiKey',
+        description: 'OpenRouter API key when embeddingProvider = OpenRouter.',
+        example: 'sk-or-your-openrouter-api-key'
+    },
+    {
+        key: 'embeddingUseSystemProxy',
+        description: 'Allow embedding providers to inherit system proxy environment variables.',
+        example: 'false'
+    },
+    {
+        key: 'ollamaModel',
+        description: 'Ollama model name, preferred over embeddingModel for Ollama.',
+        example: 'nomic-embed-text'
+    },
+    {
+        key: 'ollamaHost',
+        description: 'Ollama server host.',
+        example: 'http://127.0.0.1:11434'
+    },
+    {
+        key: 'milvusAddress',
+        description: 'Milvus or Zilliz Cloud public endpoint.',
+        example: 'localhost:19530'
+    },
+    {
+        key: 'milvusToken',
+        description: 'Milvus or Zilliz token, when authentication is required.',
+        example: 'your-zilliz-or-milvus-token'
+    },
+    {
+        key: 'databaseUseSystemProxy',
+        description: 'Allow Milvus/Zilliz connections to inherit system proxy environment variables.',
+        example: 'false'
+    },
+    {
+        key: 'milvusUseRestful',
+        description: 'Reserved advanced option; the MCP startup path uses the gRPC Milvus client.',
+        example: 'false'
+    },
+    {
+        key: 'milvusCollectionLimitCheckTimeoutMs',
+        description: 'Timeout for collection-limit pre-check.',
+        example: '15000'
+    },
+    {
+        key: 'zillizBaseUrl',
+        description: 'Zilliz management API base URL.',
+        example: 'https://api.cloud.zilliz.com'
+    },
+    {
+        key: 'collectionNameOverride',
+        description: 'Optional readable prefix for collection names.',
+        example: 'my_project'
+    },
+    {
+        key: 'codebaseIdentityMode',
+        description: 'Collection identity mode: path, gitRemote, global, or custom.',
+        example: 'path'
+    },
+    {
+        key: 'codebaseIdentity',
+        description: 'Explicit shared identity string for custom mode.',
+        example: 'shared-custom-identity'
+    },
+    {
+        key: 'globalCollectionName',
+        description: 'Name for global mode shared collections.',
+        example: 'default'
+    },
+    {
+        key: 'gitRemoteName',
+        description: 'Git remote name for gitRemote mode.',
+        example: 'origin'
+    },
+    {
+        key: 'hybridMode',
+        description: 'Enable BM25 + dense vector hybrid search.',
+        example: 'true'
+    },
+    {
+        key: 'searchTimeoutMs',
+        description: 'Search timeout in milliseconds.',
+        example: '30000'
+    },
+    {
+        key: 'customExtensions',
+        description: 'Additional file extensions to index; repeat the field for multiple values.',
+        example: '.vue'
+    },
+    {
+        key: 'customIgnorePatterns',
+        description: 'Additional ignore patterns; repeat the field for multiple values.',
+        example: 'temp/**'
+    },
+    {
+        key: 'merkleSnapshotMaxBytes',
+        description: 'Maximum bytes for Merkle snapshot storage.',
+        example: '52428800'
+    },
+    {
+        key: 'autoIndexing',
+        description: 'Enable all automatic re-indexing.',
+        example: 'true'
+    },
+    {
+        key: 'interactiveIndexing',
+        description: 'Allow index_codebase writes through MCP.',
+        example: 'true'
+    },
+    {
+        key: 'backgroundSync',
+        description: 'Enable startup and periodic background sync.',
+        example: 'true'
+    },
+    {
+        key: 'vectorDatabaseSyncTimeoutMs',
+        description: 'Timeout for vector database sync operations.',
+        example: '300000'
+    },
+    {
+        key: 'syncIntervalMs',
+        description: 'Background sync interval in milliseconds.',
+        example: '300000'
+    },
+    {
+        key: 'syncLockStaleMs',
+        description: 'Age after which a sync lock is treated as stale.',
+        example: '600000'
+    },
+    {
+        key: 'triggerWatcher',
+        description: 'Watch ~/.hitmux-context-engine/.sync-trigger for immediate debounced sync.',
+        example: 'true'
+    },
+    {
+        key: 'splitterType',
+        description: 'Default splitter: ast or langchain.',
+        example: 'ast'
+    },
+    {
+        key: 'searchTopK',
+        description: 'Default maximum search result count.',
+        example: '5'
+    },
+    {
+        key: 'searchThreshold',
+        description: 'Default minimum search relevance threshold.',
+        example: '0'
+    }
+];
+
+const DEFAULT_GLOBAL_CONFIG_ACTIVE_KEYS = extractConfOptionKeys(DEFAULT_GLOBAL_CONFIG_ACTIVE_CONTENT);
+const DEFAULT_GLOBAL_CONFIG_CONTENT = `${DEFAULT_GLOBAL_CONFIG_HEADER}${DEFAULT_GLOBAL_CONFIG_ACTIVE_CONTENT}${formatCompletionBlock(
+    CONFIG_COMPLETION_ENTRIES.filter(entry => !DEFAULT_GLOBAL_CONFIG_ACTIVE_KEYS.has(entry.key)),
+    'Available optional fields'
+)}`;
+
 const ARRAY_CONFIG_KEYS = new Set<HitmuxConfigKey>([
     'customExtensions',
     'customIgnorePatterns'
 ]);
+
+function isFileAlreadyExistsError(error: unknown): boolean {
+    return typeof error === 'object'
+        && error !== null
+        && 'code' in error
+        && (error as { code?: unknown }).code === 'EEXIST';
+}
+
+function extractConfOptionKeys(content: string): Set<HitmuxConfigKey> {
+    const keys = new Set<HitmuxConfigKey>();
+    for (const rawLine of content.split(/\r?\n/)) {
+        const match = /^\s*#?\s*([A-Za-z][A-Za-z0-9]*)\s*=/.exec(rawLine);
+        if (!match) {
+            continue;
+        }
+
+        keys.add(match[1] as HitmuxConfigKey);
+    }
+    return keys;
+}
+
+function ensureTrailingNewline(content: string): string {
+    return content.length === 0 || content.endsWith('\n') ? content : `${content}\n`;
+}
+
+function formatCompletionBlock(entries: ConfigCompletionEntry[], title: string = 'Missing optional fields added as comments'): string {
+    if (entries.length === 0) {
+        return '';
+    }
+
+    const lines = [
+        '',
+        `# ${title}.`,
+        '# Uncomment and edit only the fields you need.'
+    ];
+
+    for (const entry of entries) {
+        lines.push('', `# ${entry.description}`, `# ${entry.key} = ${entry.example}`);
+    }
+
+    return `${lines.join('\n')}\n`;
+}
 
 function parseConfConfig(input: string): HitmuxConfig {
     const config: Record<string, unknown> = {};

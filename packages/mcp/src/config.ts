@@ -15,12 +15,14 @@ export interface ContextMcpConfig {
     geminiBaseUrl?: string;
     // OpenRouter configuration
     openrouterApiKey?: string;
+    embeddingUseSystemProxy: boolean;
     // Ollama configuration
     ollamaModel?: string;
     ollamaHost?: string;
     // Vector database configuration
     milvusAddress?: string; // Optional, can be auto-resolved from token
     milvusToken?: string;
+    databaseUseSystemProxy: boolean;
     collectionNameOverride?: string;
     codebaseIdentityMode?: CodebaseIdentityMode;
     codebaseIdentity?: string;
@@ -193,6 +195,8 @@ export function createMcpConfig(): ContextMcpConfig {
     console.log(`[DEBUG]   geminiApiKey: ${configManager.getString('geminiApiKey') ? 'SET (length: ' + configManager.getString('geminiApiKey')!.length + ')' : 'NOT SET'}`);
     console.log(`[DEBUG]   openaiApiKey: ${configManager.getString('openaiApiKey') ? 'SET (length: ' + configManager.getString('openaiApiKey')!.length + ')' : 'NOT SET'}`);
     console.log(`[DEBUG]   milvusAddress: ${configManager.getString('milvusAddress') || 'NOT SET'}`);
+    console.log(`[DEBUG]   embeddingUseSystemProxy: ${getBooleanFromConfig('embeddingUseSystemProxy', false)}`);
+    console.log(`[DEBUG]   databaseUseSystemProxy: ${getBooleanFromConfig('databaseUseSystemProxy', false)}`);
     console.log(`[DEBUG]   collectionNameOverride: ${configManager.getString('collectionNameOverride') || 'NOT SET'}`);
 
     const embeddingProvider = configManager.getString('embeddingProvider') as 'OpenAI' | 'VoyageAI' | 'Gemini' | 'Ollama' | 'OpenRouter' | undefined;
@@ -210,12 +214,14 @@ export function createMcpConfig(): ContextMcpConfig {
         geminiBaseUrl: getUrlFromConfig('geminiBaseUrl'),
         // OpenRouter configuration
         openrouterApiKey: configManager.getString('openrouterApiKey'),
+        embeddingUseSystemProxy: getBooleanFromConfig('embeddingUseSystemProxy', false),
         // Ollama configuration
         ollamaModel: configManager.getString('ollamaModel'),
         ollamaHost: configManager.getString('ollamaHost'),
         // Vector database configuration - address can be auto-resolved from token
         milvusAddress: configManager.getString('milvusAddress'), // Optional, can be resolved from token
         milvusToken: configManager.getString('milvusToken'),
+        databaseUseSystemProxy: getBooleanFromConfig('databaseUseSystemProxy', false),
         collectionNameOverride: configManager.getString('collectionNameOverride'),
         codebaseIdentityMode: getCodebaseIdentityModeFromConfig(),
         codebaseIdentity: configManager.getString('codebaseIdentity'),
@@ -233,7 +239,9 @@ export function logConfigurationSummary(config: ContextMcpConfig): void {
     console.log(`[MCP]   Server: ${config.name} v${config.version}`);
     console.log(`[MCP]   Embedding Provider: ${config.embeddingProvider}`);
     console.log(`[MCP]   Embedding Model: ${config.embeddingModel}`);
+    console.log(`[MCP]   Embedding System Proxy: ${config.embeddingUseSystemProxy ? 'enabled' : 'disabled'}`);
     console.log(`[MCP]   Milvus Address: ${config.milvusAddress || (config.milvusToken ? '[Auto-resolve from token]' : '[Not configured]')}`);
+    console.log(`[MCP]   Database System Proxy: ${config.databaseUseSystemProxy ? 'enabled' : 'disabled'}`);
     if (config.collectionNameOverride) {
         console.log(`[MCP]   Collection Name Override: ✅ Configured`);
     }
@@ -311,6 +319,9 @@ Common config.conf fields:
   geminiApiKey           Google AI API key (required for Gemini provider)
   geminiBaseUrl          Gemini API base URL (optional, for custom endpoints)
   openrouterApiKey       OpenRouter API key (required for OpenRouter provider)
+  embeddingUseSystemProxy
+                          Allow embedding providers to inherit system proxy
+                          environment variables (default: false)
 
   Ollama Configuration:
   ollamaHost             Ollama server host (default: http://127.0.0.1:11434)
@@ -319,6 +330,9 @@ Common config.conf fields:
   Vector Database Configuration:
   milvusAddress          Milvus address (optional, can be auto-resolved from token)
   milvusToken            Milvus token (optional, used for authentication and address resolution)
+  databaseUseSystemProxy
+                          Allow Milvus/Zilliz connections to inherit system
+                          proxy environment variables (default: false)
   collectionNameOverride
                           Optional readable prefix for collection names.
                           Uses code_chunks_<override>_<identityHash> (or hybrid_...)
@@ -369,6 +383,8 @@ Example config.conf:
   openrouterApiKey = sk-or-xxx
   milvusAddress = localhost:19530
   milvusToken = your-token
+  embeddingUseSystemProxy = false
+  databaseUseSystemProxy = false
   backgroundSync = true
   syncIntervalMs = 60000
 

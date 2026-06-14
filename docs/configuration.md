@@ -22,6 +22,8 @@ milvusAddress = localhost:19530
 EOF
 ```
 
+By default, Hitmux Context Engine does not inherit system proxy environment variables such as `http_proxy`, `https_proxy`, or `grpc_proxy`. See [System Proxy](#system-proxy) when an embedding provider or remote vector database must use a proxy.
+
 Add the MCP server:
 
 ```bash
@@ -194,6 +196,42 @@ Optional database fields:
 | `hybridMode` | Enable BM25 + dense vector hybrid search | `true` |
 
 If `milvusAddress` is omitted and `milvusToken` is set, token-based address resolution is intended for Zilliz Cloud. For self-hosted remote Milvus, set `milvusAddress` explicitly.
+
+## System Proxy
+
+Hitmux Context Engine ignores system proxy environment variables by default. This prevents local Milvus, Ollama, and other localhost services from being routed through a desktop or shell proxy by accident.
+
+The proxy controls are split by dependency type:
+
+| Field | Applies to | Default |
+| --- | --- | --- |
+| `embeddingUseSystemProxy` | Embedding providers such as OpenAI, OpenRouter, VoyageAI, Gemini, and Ollama | `false` |
+| `databaseUseSystemProxy` | Milvus-compatible vector database connections, including Local Milvus, self-hosted Milvus, and Zilliz Cloud | `false` |
+
+Enable only the side that actually needs the proxy.
+
+Embedding provider through system proxy, local Milvus direct:
+
+```conf
+embeddingUseSystemProxy = true
+databaseUseSystemProxy = false
+```
+
+Remote vector database through system proxy, embedding direct:
+
+```conf
+embeddingUseSystemProxy = false
+databaseUseSystemProxy = true
+```
+
+Fully direct local setup:
+
+```conf
+embeddingUseSystemProxy = false
+databaseUseSystemProxy = false
+```
+
+For a default local Milvus setup, keep `databaseUseSystemProxy = false`. If a local database connection fails with gRPC errors such as `14 UNAVAILABLE: No connection established`, check whether the shell or MCP client process has proxy variables set and keep the database proxy disabled.
 
 ## File Filtering
 

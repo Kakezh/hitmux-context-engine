@@ -2,73 +2,109 @@
 
 ## Check Indexing Status First
 
-先让 MCP client 调用：
+Ask the MCP client to run:
 
 ```text
 Check the indexing status
 ```
 
-这会调用 `get_indexing_status`，通常能看到索引进度、完成状态或最近一次索引错误。
+This calls `get_indexing_status` and usually shows indexing progress, completed state, or the most recent indexing error.
 
 ## Check Configuration
 
-Hitmux Context Engine 从以下位置读取产品配置：
+Hitmux Context Engine reads product configuration from:
 
 1. `~/.hitmux-context-engine/config.conf`
 2. `./.hitmux-context-engine/config.conf`
 3. built-in defaults
 
-环境变量和 `~/.hitmux-context-engine/.env` 不用于 MCP 产品配置。
+Environment variables and `~/.hitmux-context-engine/.env` are not used for MCP product options.
 
-常见检查项：
+Common checks:
 
-- 当前 `embeddingProvider` 有对应的 API key 字段，例如 `openrouterApiKey`、`openaiApiKey`、`voyageaiApiKey` 或 `geminiApiKey`。
-- Local Milvus 使用 `milvusAddress = localhost:19530`。
-- 自托管远端 Milvus 使用可访问的 host 和 port 作为 `milvusAddress`；只有服务端启用了认证时才设置 `milvusToken`。
-- Zilliz Cloud 使用 cloud public endpoint 作为 `milvusAddress`，并把 Personal Key 写入 `milvusToken`。
-- SQLite、Chroma、Qdrant、LanceDB 和其它数据库后端不能通过 `config.conf` 选择。
-- 项目内 `.hitmux-context-engine/config.conf` 没有用空字符串覆盖全局密钥。
+- The active `embeddingProvider` has its matching API key field, such as `openrouterApiKey`, `openaiApiKey`, `voyageaiApiKey`, or `geminiApiKey`.
+- Local Milvus uses `milvusAddress = localhost:19530`.
+- Self-hosted remote Milvus uses a reachable host and port as `milvusAddress`; set `milvusToken` only when the server requires authentication.
+- Zilliz Cloud uses the cloud public endpoint as `milvusAddress`, with the Personal Key in `milvusToken`.
+- SQLite, Chroma, Qdrant, LanceDB, and other database backends cannot be selected through `config.conf`.
+- The project-level `.hitmux-context-engine/config.conf` is not overriding a global secret with an empty value.
+
+## System Proxy
+
+Hitmux Context Engine does not inherit system proxy environment variables by default, including `http_proxy`, `https_proxy`, `all_proxy`, `grpc_proxy`, and `no_proxy`.
+
+Proxy use is split by dependency type:
+
+```conf
+embeddingUseSystemProxy = false
+databaseUseSystemProxy = false
+```
+
+- `embeddingUseSystemProxy` only affects embedding providers such as OpenAI, OpenRouter, VoyageAI, Gemini, and Ollama.
+- `databaseUseSystemProxy` only affects Milvus / Zilliz vector database connections.
+
+Local Milvus and local Ollama normally should keep these fields set to `false`. If an embedding endpoint such as OpenRouter or OpenAI must use the system proxy, enable only:
+
+```conf
+embeddingUseSystemProxy = true
+databaseUseSystemProxy = false
+```
+
+If a remote Milvus / Zilliz endpoint must use the system proxy, enable only:
+
+```conf
+embeddingUseSystemProxy = false
+databaseUseSystemProxy = true
+```
+
+Check proxy environment variables with:
+
+```bash
+env | grep -i proxy
+```
+
+If local Milvus reports `14 UNAVAILABLE: No connection established`, first confirm `databaseUseSystemProxy = false`, then reconnect or restart the MCP server.
 
 ## Reconnect After Config Changes
 
-修改 `config.conf` 后，重新连接或重启 MCP server。
+After editing `config.conf`, reconnect or restart the MCP server.
 
-Claude Code：
+Claude Code:
 
 ```text
 /mcp reconnect hitmux-context-engine
 ```
 
-Gemini CLI：
+Gemini CLI:
 
 ```text
 /mcp refresh
 ```
 
-GUI MCP client 通常在 MCP settings 中提供 restart、reconnect 或 enable/disable 切换。
+GUI MCP clients usually provide restart, reconnect, or enable/disable controls in MCP settings.
 
 ## Get Logs
 
-Claude Code 和 Gemini CLI：
+Claude Code and Gemini CLI:
 
 ```bash
 claude --debug
 gemini --debug
 ```
 
-Cursor、Windsurf、Cline、Roo Code 这类 IDE / extension 通常在 Output 面板中提供 MCP 日志。
+Cursor, Windsurf, Cline, and Roo Code usually expose MCP logs in an Output panel.
 
-报告问题时请附带：
+When reporting an issue, include:
 
-- MCP client 名称和版本。
-- MCP client server config。
-- 已脱敏的 `config.conf`。
-- `get_indexing_status` 输出。
-- 相关 debug logs。
+- MCP client name and version.
+- MCP client server config.
+- Redacted `config.conf`.
+- `get_indexing_status` output.
+- Relevant debug logs.
 
 ## Windows: `spawn C:\Windows\system32\cmd.exe ENOENT`
 
-这个错误由 MCP client 在 Hitmux Context Engine 启动前抛出。检查：
+This error is thrown by the MCP client before Hitmux Context Engine starts. Check:
 
 ```powershell
 Test-Path "$env:SystemRoot\System32\cmd.exe"
@@ -77,9 +113,9 @@ Get-Command npm
 Get-Command npx
 ```
 
-如果 `cmd.exe` 不存在，修复 Windows，或把 `ComSpec` 恢复为 `%SystemRoot%\System32\cmd.exe`。如果 `npx` 不存在，从官方 Windows installer 重新安装 Node.js，并重启 MCP client。
+If `cmd.exe` is missing, repair Windows or restore `ComSpec` to `%SystemRoot%\System32\cmd.exe`. If `npx` is missing, reinstall Node.js from the official Windows installer and restart the MCP client.
 
-无法正确解析 npm shim 的客户端可以使用 `npx.cmd`：
+Clients that cannot resolve the npm shim correctly can use `npx.cmd`:
 
 ```json
 {
@@ -94,15 +130,15 @@ Get-Command npx
 
 ## Completed Status Shows `0 files, 0 chunks`
 
-`get_indexing_status` 读取本机 MCP snapshot metadata。如果 completed entry 显示零计数：
+`get_indexing_status` reads local MCP snapshot metadata. If a completed entry shows zero counts:
 
-1. 确认正在检查的是最初索引时的同一个绝对路径。
-2. 对该路径运行 `clear_index`。
-3. 对同一路径重新运行 `index_codebase`。
+1. Confirm that you are checking the same absolute path used during the original indexing run.
+2. Run `clear_index` for that path.
+3. Run `index_codebase` again for the same path.
 
 ## Fully Local Setup
 
-完全本地配置可以使用 Local Milvus 加 Ollama：
+A fully local setup can use Local Milvus with Ollama:
 
 ```conf
 embeddingProvider = Ollama

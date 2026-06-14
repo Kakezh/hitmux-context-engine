@@ -18,7 +18,7 @@ import {
     ListToolsRequestSchema,
     CallToolRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
-import { Context, configManager } from "@hitmux/hitmux-context-engine-core";
+import { Context, applySystemProxyPolicy, configManager } from "@hitmux/hitmux-context-engine-core";
 import { MilvusVectorDatabase } from "@hitmux/hitmux-context-engine-core";
 
 // Import our modular components
@@ -27,6 +27,12 @@ import { createEmbeddingInstance, logEmbeddingProviderInfo } from "./embedding.j
 import { SnapshotManager } from "./snapshot.js";
 import { SyncManager } from "./sync.js";
 import { ToolHandlers } from "./handlers.js";
+
+applySystemProxyPolicy(false);
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[MCP] Unhandled async error (kept server alive):', reason);
+});
 
 class ContextMcpServer {
     private server: Server;
@@ -60,15 +66,19 @@ class ContextMcpServer {
         this.setupTools();
     }
 
-    private formatRuntimeInitializationError(error: unknown) {
+    private formatToolError(prefix: string, error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         return {
             content: [{
                 type: "text",
-                text: `Error initializing Hitmux Context Engine runtime: ${message}`
+                text: `${prefix}: ${message}`
             }],
             isError: true
         };
+    }
+
+    private formatRuntimeInitializationError(error: unknown) {
+        return this.formatToolError("Error initializing Hitmux Context Engine runtime", error);
     }
 
     private getConfigReadError(): Error | null {
@@ -122,7 +132,8 @@ class ContextMcpServer {
         // Initialize vector database
         const vectorDatabase = new MilvusVectorDatabase({
             address: config.milvusAddress,
-            ...(config.milvusToken && { token: config.milvusToken })
+            ...(config.milvusToken && { token: config.milvusToken }),
+            useSystemProxy: config.databaseUseSystemProxy
         });
 
         // Initialize Hitmux Context Engine
@@ -416,20 +427,25 @@ This tool is versatile and can be used before completing various tasks to retrie
                 return this.formatRuntimeInitializationError(error);
             }
 
-            switch (name) {
-                case "index_codebase":
-                    return await runtime.toolHandlers.handleIndexCodebase(args);
-                case "search_code":
-                    return await runtime.toolHandlers.handleSearchCode(args);
-                case "trace_symbol":
-                    return await runtime.toolHandlers.handleTraceSymbol(args);
-                case "clear_index":
-                    return await runtime.toolHandlers.handleClearIndex(args);
-                case "get_indexing_status":
-                    return await runtime.toolHandlers.handleGetIndexingStatus(args);
+            try {
+                switch (name) {
+                    case "index_codebase":
+                        return await runtime.toolHandlers.handleIndexCodebase(args);
+                    case "search_code":
+                        return await runtime.toolHandlers.handleSearchCode(args);
+                    case "trace_symbol":
+                        return await runtime.toolHandlers.handleTraceSymbol(args);
+                    case "clear_index":
+                        return await runtime.toolHandlers.handleClearIndex(args);
+                    case "get_indexing_status":
+                        return await runtime.toolHandlers.handleGetIndexingStatus(args);
 
-                default:
-                    throw new Error(`Unknown tool: ${name}`);
+                    default:
+                        return this.formatToolError("Unknown tool", name);
+                }
+            } catch (error) {
+                console.error(`[MCP] Tool '${name}' failed:`, error);
+                return this.formatToolError(`Error running tool '${name}'`, error);
             }
         });
     }
@@ -457,6 +473,13 @@ async function main() {
     if (args.includes('--help') || args.includes('-h')) {
         showHelpMessage();
         process.exit(0);
+    }
+
+    const ensureConfigResult = configManager.ensureGlobalConfigFile();
+    if (ensureConfigResult.created) {
+        console.log(`[MCP] Created default global config file: ${ensureConfigResult.path}`);
+    } else if (ensureConfigResult.updated) {
+        console.log(`[MCP] Completed global config comments for missing fields: ${ensureConfigResult.appendedKeys.join(', ')}`);
     }
 
     const server = new ContextMcpServer();

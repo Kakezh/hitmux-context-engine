@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
-import { Context, COLLECTION_LIMIT_MESSAGE, FileSynchronizer, IndexAbortError, normalizeCodebaseIdentityPath, type SearchTargetRole, type SymbolTraceEvidence, type SymbolTraceResult } from "@hitmux/hitmux-context-engine-core";
+import { Context, COLLECTION_LIMIT_MESSAGE, FileSynchronizer, IndexAbortError, configManager, normalizeCodebaseIdentityPath, type SearchTargetRole, type SymbolTraceEvidence, type SymbolTraceResult } from "@hitmux/hitmux-context-engine-core";
 import { SnapshotManager } from "./snapshot.js";
 import { getBooleanFromConfig, type CodebaseIndexOptions, type CodebaseInfoIndexed, type RequestSplitterType } from "./config.js";
 import { createRequestSplitter, isRequestSplitterType, resolveRequestSplitterType } from "./splitter.js";
@@ -18,7 +18,22 @@ const SEARCH_TRACE_EVIDENCE_RESULT_LIMIT = 3;
 const SEARCH_TRACE_EVIDENCE_SYMBOL_LIMIT = 1;
 const SEARCH_TRACE_EVIDENCE_MAX_FILES = 500;
 const SEARCH_TRACE_EVIDENCE_MAX_REFERENCES = 8;
+const DEFAULT_VECTOR_DATABASE_SYNC_TIMEOUT_MS = 5_000;
 const NOT_INDEXED_INDEXING_HINT = "Please index it first using the index_codebase tool. Before first indexing, create a project ignore file such as .hceignore when you need to exclude generated, large, or private paths. The indexer automatically loads .*ignore files it finds in the project tree, so files like .hceignore, .gitignore, and .cursorignore are applied without passing ignoreFiles.";
+
+function getVectorDatabaseSyncTimeoutMs(): number {
+    const configuredTimeoutMs = configManager.getNumber("vectorDatabaseSyncTimeoutMs");
+    if (configuredTimeoutMs === undefined) {
+        return DEFAULT_VECTOR_DATABASE_SYNC_TIMEOUT_MS;
+    }
+
+    if (!Number.isFinite(configuredTimeoutMs) || configuredTimeoutMs <= 0) {
+        console.warn(`[SYNC-VDB] Ignoring invalid config.vectorDatabaseSyncTimeoutMs value '${configuredTimeoutMs}'. Falling back to ${DEFAULT_VECTOR_DATABASE_SYNC_TIMEOUT_MS}ms.`);
+        return DEFAULT_VECTOR_DATABASE_SYNC_TIMEOUT_MS;
+    }
+
+    return Math.floor(configuredTimeoutMs);
+}
 
 export class ToolHandlers {
     private context: Context;
@@ -34,11 +49,13 @@ export class ToolHandlers {
      */
     private indexingTasks: Map<string, { controller: AbortController; promise: Promise<void> }> = new Map();
     private indexingStateLocks: Map<string, Promise<void>> = new Map();
+    private vectorDatabaseSyncTimeoutMs: number;
 
     constructor(context: Context, snapshotManager: SnapshotManager) {
         this.context = context;
         this.snapshotManager = snapshotManager;
         this.currentWorkspace = process.cwd();
+        this.vectorDatabaseSyncTimeoutMs = getVectorDatabaseSyncTimeoutMs();
         console.log(`[WORKSPACE] Current workspace: ${this.currentWorkspace}`);
     }
 
@@ -665,6 +682,23 @@ export class ToolHandlers {
         return `${info.indexedFiles} files, ${info.totalChunks} chunks`;
     }
 
+    private async withVectorDatabaseSyncTimeout<T>(label: string, operation: Promise<T>): Promise<T> {
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+            timeoutHandle = setTimeout(() => {
+                reject(new Error(`${label} timed out after ${this.vectorDatabaseSyncTimeoutMs}ms`));
+            }, this.vectorDatabaseSyncTimeoutMs);
+        });
+
+        try {
+            return await Promise.race([operation, timeoutPromise]);
+        } finally {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+        }
+    }
+
     /**
      * One-shot startup validation: find any legacy 0/0+completed entries on disk
      * (left over from old MCP versions, v1 snapshot migrations, or pre-fix recovery
@@ -799,34 +833,37 @@ export class ToolHandlers {
     }
 
     /**
-     * Sync indexed codebases from Zilliz Cloud collections
+     * Sync indexed codebases from vector database collections.
      * This method fetches all collections from the vector database,
      * extracts codebasePath from collection description (preferred) or falls back
      * to querying document metadata for old collections,
      * and updates the snapshot with discovered codebases.
      *
-     * Logic: Compare mcp-codebase-snapshot.json with zilliz cloud collections
-     * - If local snapshot has extra directories (not in cloud), remove them
-     * - If local snapshot is missing directories (exist in cloud), ignore them
+     * Logic: Compare mcp-codebase-snapshot.json with vector database collections
+     * - If local snapshot has extra directories (not in vector database), remove them
+     * - If local snapshot is missing directories (exist in vector database), recover them
      */
-    private async syncIndexedCodebasesFromCloud(): Promise<void> {
+    private async syncIndexedCodebasesFromVectorDatabase(): Promise<void> {
         try {
-            console.log(`[SYNC-CLOUD] 🔄 Syncing indexed codebases from Zilliz Cloud...`);
+            console.log(`[SYNC-VDB] 🔄 Syncing indexed codebases from vector database...`);
 
             // Get all collections using the interface method
             const vectorDb = this.context.getVectorDatabase();
 
             // Use the new listCollections method from the interface
-            const collections = await vectorDb.listCollections();
+            const collections = await this.withVectorDatabaseSyncTimeout(
+                "Milvus listCollections during vector database sync",
+                vectorDb.listCollections()
+            );
 
-            console.log(`[SYNC-CLOUD] 📋 Found ${collections.length} collections in Zilliz Cloud`);
+            console.log(`[SYNC-VDB] 📋 Found ${collections.length} collections in vector database`);
 
             if (collections.length === 0) {
-                console.log(`[SYNC-CLOUD] ✅ No collections found in cloud. Skipping deletion of local codebases to avoid data loss from transient errors.`);
+                console.log(`[SYNC-VDB] ✅ No collections found in vector database. Skipping deletion of local codebases to avoid data loss from transient errors.`);
                 return;
             }
 
-            const cloudCodebases = new Set<string>();
+            const vectorDatabaseCodebases = new Set<string>();
             let codeCollectionsChecked = 0;
             let successfulExtractions = 0;
 
@@ -835,39 +872,45 @@ export class ToolHandlers {
                 try {
                     // Skip collections that don't match the code_chunks pattern (support both legacy and new collections)
                     if (!collectionName.startsWith('code_chunks_') && !collectionName.startsWith('hybrid_code_chunks_')) {
-                        console.log(`[SYNC-CLOUD] ⏭️  Skipping non-code collection: ${collectionName}`);
+                        console.log(`[SYNC-VDB] ⏭️  Skipping non-code collection: ${collectionName}`);
                         continue;
                     }
 
                     codeCollectionsChecked++;
-                    console.log(`[SYNC-CLOUD] 🔍 Checking collection: ${collectionName}`);
+                    console.log(`[SYNC-VDB] 🔍 Checking collection: ${collectionName}`);
 
                     // Try to extract codebasePath from collection description first (new format)
                     let extracted = false;
                     try {
-                        const description = await vectorDb.getCollectionDescription(collectionName);
+                        const description = await this.withVectorDatabaseSyncTimeout(
+                            `Milvus getCollectionDescription(${collectionName}) during vector database sync`,
+                            vectorDb.getCollectionDescription(collectionName)
+                        );
                         if (description && description.startsWith('codebasePath:')) {
                             const codebasePath = description.split(/\r?\n/, 1)[0].substring('codebasePath:'.length);
                             if (codebasePath.length > 0) {
-                                console.log(`[SYNC-CLOUD] 📍 Found codebase path from description: ${codebasePath} in collection: ${collectionName}`);
-                                cloudCodebases.add(codebasePath);
+                                console.log(`[SYNC-VDB] 📍 Found codebase path from description: ${codebasePath} in collection: ${collectionName}`);
+                                vectorDatabaseCodebases.add(codebasePath);
                                 successfulExtractions++;
                                 extracted = true;
                             }
                         }
                     } catch (descError: any) {
-                        console.warn(`[SYNC-CLOUD] ⚠️  Failed to get description for collection ${collectionName}:`, descError.message || descError);
+                        console.warn(`[SYNC-VDB] ⚠️  Failed to get description for collection ${collectionName}:`, descError.message || descError);
                     }
 
                     // Fallback: query document metadata for old collections without new description format
                     if (!extracted) {
-                        console.log(`[SYNC-CLOUD] 🔄 Falling back to query-based extraction for collection: ${collectionName}`);
+                        console.log(`[SYNC-VDB] 🔄 Falling back to query-based extraction for collection: ${collectionName}`);
                         try {
-                            const results = await vectorDb.query(
-                                collectionName,
-                                undefined as any, // Don't pass empty filter
-                                ['metadata'], // Only fetch metadata field
-                                1 // Only need one result to extract codebasePath
+                            const results = await this.withVectorDatabaseSyncTimeout(
+                                `Milvus metadata query(${collectionName}) during vector database sync`,
+                                vectorDb.query(
+                                    collectionName,
+                                    undefined as any, // Don't pass empty filter
+                                    ['metadata'], // Only fetch metadata field
+                                    1 // Only need one result to extract codebasePath
+                                )
                             );
 
                             if (results && results.length > 0) {
@@ -879,95 +922,95 @@ export class ToolHandlers {
                                     const codebasePath = metadata.codebasePath;
 
                                     if (codebasePath && typeof codebasePath === 'string') {
-                                        console.log(`[SYNC-CLOUD] 📍 Found codebase path from query: ${codebasePath} in collection: ${collectionName}`);
-                                        cloudCodebases.add(codebasePath);
+                                        console.log(`[SYNC-VDB] 📍 Found codebase path from query: ${codebasePath} in collection: ${collectionName}`);
+                                        vectorDatabaseCodebases.add(codebasePath);
                                         successfulExtractions++;
                                     } else {
-                                        console.warn(`[SYNC-CLOUD] ⚠️  No codebasePath found in metadata for collection: ${collectionName}`);
+                                        console.warn(`[SYNC-VDB] ⚠️  No codebasePath found in metadata for collection: ${collectionName}`);
                                     }
                                 } else {
-                                    console.warn(`[SYNC-CLOUD] ⚠️  No metadata found in collection: ${collectionName}`);
+                                    console.warn(`[SYNC-VDB] ⚠️  No metadata found in collection: ${collectionName}`);
                                 }
                             } else {
-                                console.log(`[SYNC-CLOUD] ℹ️  Collection ${collectionName} is empty`);
+                                console.log(`[SYNC-VDB] ℹ️  Collection ${collectionName} is empty`);
                             }
                         } catch (queryError: any) {
-                            console.warn(`[SYNC-CLOUD] ⚠️  Fallback query failed for collection ${collectionName}:`, queryError.message || queryError);
+                            console.warn(`[SYNC-VDB] ⚠️  Fallback query failed for collection ${collectionName}:`, queryError.message || queryError);
                         }
                     }
                 } catch (collectionError: any) {
-                    console.warn(`[SYNC-CLOUD] ⚠️  Error checking collection ${collectionName}:`, collectionError.message || collectionError);
+                    console.warn(`[SYNC-VDB] ⚠️  Error checking collection ${collectionName}:`, collectionError.message || collectionError);
                     // Continue with next collection
                 }
             }
 
-            console.log(`[SYNC-CLOUD] 📊 Found ${cloudCodebases.size} valid codebases in cloud (checked ${codeCollectionsChecked} code collections, ${successfulExtractions} successfully extracted)`);
+            console.log(`[SYNC-VDB] 📊 Found ${vectorDatabaseCodebases.size} valid codebases in vector database (checked ${codeCollectionsChecked} code collections, ${successfulExtractions} successfully extracted)`);
 
             // Safety guard: if we checked code collections but none returned results,
-            // treat this as an extraction failure rather than "cloud is empty".
+            // treat this as an extraction failure rather than "vector database is empty".
             // This prevents deleting all local codebases due to transient errors.
             if (codeCollectionsChecked > 0 && successfulExtractions === 0) {
-                console.warn(`[SYNC-CLOUD] ⚠️  All ${codeCollectionsChecked} code collection extractions failed. Skipping sync to avoid accidental deletion of local codebases.`);
+                console.warn(`[SYNC-VDB] ⚠️  All ${codeCollectionsChecked} code collection extractions failed. Skipping sync to avoid accidental deletion of local codebases.`);
                 return;
             }
 
             // Get current local codebases
             const localCodebases = new Set(this.snapshotManager.getIndexedCodebases());
-            console.log(`[SYNC-CLOUD] 📊 Found ${localCodebases.size} local codebases in snapshot`);
+            console.log(`[SYNC-VDB] 📊 Found ${localCodebases.size} local codebases in snapshot`);
 
             let hasChanges = false;
 
-            // Remove local codebases that don't exist in cloud
+            // Remove local codebases that don't exist in the vector database.
             for (const localCodebase of localCodebases) {
-                if (!cloudCodebases.has(localCodebase)) {
+                if (!vectorDatabaseCodebases.has(localCodebase)) {
                     this.snapshotManager.removeCodebaseCompletely(localCodebase);
                     hasChanges = true;
 
                     try {
                         await FileSynchronizer.deleteSnapshot(localCodebase);
                     } catch (error: any) {
-                        console.warn(`[SYNC-CLOUD] ⚠️  Failed to delete local merkle snapshot for removed codebase '${localCodebase}':`, error?.message || error);
+                        console.warn(`[SYNC-VDB] ⚠️  Failed to delete local merkle snapshot for removed codebase '${localCodebase}':`, error?.message || error);
                     }
 
-                    console.log(`[SYNC-CLOUD] ➖ Removed local codebase (not in cloud): ${localCodebase}`);
+                    console.log(`[SYNC-VDB] ➖ Removed local codebase (not in vector database): ${localCodebase}`);
                 }
             }
 
-            // Add cloud codebases that are missing from local snapshot (recovery).
+            // Add vector database codebases that are missing from local snapshot (recovery).
             // Query Milvus for the real row count — if unknown/empty, skip the write
             // so we don't persist a poisoning 0/0+completed entry (Issue #295).
-            for (const cloudCodebase of cloudCodebases) {
-                if (!localCodebases.has(cloudCodebase)) {
-                    const indexingCodebase = this.snapshotManager.findIndexingCodebasePath(cloudCodebase);
+            for (const vectorDatabaseCodebase of vectorDatabaseCodebases) {
+                if (!localCodebases.has(vectorDatabaseCodebase)) {
+                    const indexingCodebase = this.snapshotManager.findIndexingCodebasePath(vectorDatabaseCodebase);
                     if (indexingCodebase !== undefined) {
-                        console.log(`[SYNC-CLOUD] ⏭️  Skipped recovery for ${cloudCodebase} because '${indexingCodebase}' is currently indexing`);
+                        console.log(`[SYNC-VDB] ⏭️  Skipped recovery for ${vectorDatabaseCodebase} because '${indexingCodebase}' is currently indexing`);
                         continue;
                     }
 
-                    const stats = await this.queryCollectionStats(cloudCodebase);
+                    const stats = await this.queryCollectionStats(vectorDatabaseCodebase);
                     if (stats) {
-                        this.snapshotManager.setCodebaseIndexed(cloudCodebase, {
+                        this.snapshotManager.setCodebaseIndexed(vectorDatabaseCodebase, {
                             ...stats,
                             status: 'completed' as const
                         });
                         hasChanges = true;
-                        console.log(`[SYNC-CLOUD] ➕ Recovered codebase from cloud: ${cloudCodebase} (rows=${stats.totalChunks})`);
+                        console.log(`[SYNC-VDB] ➕ Recovered codebase from vector database: ${vectorDatabaseCodebase} (rows=${stats.totalChunks})`);
                     } else {
-                        console.log(`[SYNC-CLOUD] ⏭️  Skipped recovery for ${cloudCodebase} (row count unknown or zero)`);
+                        console.log(`[SYNC-VDB] ⏭️  Skipped recovery for ${vectorDatabaseCodebase} (row count unknown or zero)`);
                     }
                 }
             }
 
             if (hasChanges) {
                 this.snapshotManager.saveCodebaseSnapshot();
-                console.log(`[SYNC-CLOUD] 💾 Updated snapshot to match cloud state`);
+                console.log(`[SYNC-VDB] 💾 Updated snapshot to match vector database state`);
             } else {
-                console.log(`[SYNC-CLOUD] ✅ Local snapshot already matches cloud state`);
+                console.log(`[SYNC-VDB] ✅ Local snapshot already matches vector database state`);
             }
 
-            console.log(`[SYNC-CLOUD] ✅ Cloud sync completed successfully`);
+            console.log(`[SYNC-VDB] ✅ Vector database sync completed successfully`);
         } catch (error: any) {
-            console.error(`[SYNC-CLOUD] ❌ Error syncing codebases from cloud:`, error.message || error);
+            console.error(`[SYNC-VDB] ❌ Error syncing codebases from vector database:`, error.message || error);
             // Don't throw - this is not critical for the main functionality
         }
     }
@@ -1088,8 +1131,8 @@ export class ToolHandlers {
                 };
             }
 
-            // Sync indexed codebases from cloud first
-            await this.syncIndexedCodebasesFromCloud();
+            // Sync indexed codebases from the vector database first.
+            await this.syncIndexedCodebasesFromVectorDatabase();
 
             return await this.withIndexingStateLock(absolutePath, async () => {
                 if (this.indexingTasks.has(absolutePath)) {
@@ -1119,7 +1162,7 @@ export class ToolHandlers {
                 }
             }
 
-            //Check if the snapshot and cloud index are in sync
+            // Check if the snapshot and vector database index are in sync.
             const snapshotHasIndex = this.snapshotManager.getIndexedCodebases().includes(absolutePath);
             const vectorDbHasIndex = await this.context.hasIndex(absolutePath);
             if (snapshotHasIndex !== vectorDbHasIndex) {
@@ -1589,8 +1632,8 @@ export class ToolHandlers {
         }
 
         try {
-            // Sync indexed codebases from cloud first
-            await this.syncIndexedCodebasesFromCloud();
+            // Sync indexed codebases from the vector database first.
+            await this.syncIndexedCodebasesFromVectorDatabase();
 
             // Force absolute path resolution - warn if relative path provided
             const absolutePath = ensureAbsolutePath(codebasePath);
@@ -2004,7 +2047,7 @@ export class ToolHandlers {
                 };
             }
 
-            await this.syncIndexedCodebasesFromCloud();
+            await this.syncIndexedCodebasesFromVectorDatabase();
 
             // Check indexing status using new status system
             const statusCodebasePath = this.snapshotManager.findTrackedCodebasePath(absolutePath) || absolutePath;

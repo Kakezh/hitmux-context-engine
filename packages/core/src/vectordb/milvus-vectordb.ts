@@ -14,6 +14,7 @@ import { ClusterManager } from './zilliz-utils';
 import { formatErrorDetails, milvusOperationError } from '../utils/error-format';
 import { isUnsupportedSparseVectorError, milvusHybridCompatibilityError } from './milvus-compatibility';
 import { configManager } from '../utils/config-manager';
+import { withSystemProxyPolicy } from '../utils/proxy-env';
 
 export interface MilvusConfig {
     address?: string;
@@ -21,6 +22,7 @@ export interface MilvusConfig {
     username?: string;
     password?: string;
     ssl?: boolean;
+    useSystemProxy?: boolean;
 }
 
 const STRUCTURED_STRING_FIELD_SCHEMAS = [
@@ -155,8 +157,10 @@ export class MilvusVectorDatabase implements VectorDatabase {
     }
 
     private async initialize(): Promise<void> {
-        const resolvedAddress = await this.resolveAddress();
-        await this.initializeClient(resolvedAddress);
+        await withSystemProxyPolicy(this.config.useSystemProxy === true, async () => {
+            const resolvedAddress = await this.resolveAddress();
+            await this.initializeClient(resolvedAddress);
+        });
     }
 
     private async initializeClient(address: string): Promise<void> {
@@ -169,7 +173,8 @@ export class MilvusVectorDatabase implements VectorDatabase {
             token: milvusConfig.token,
             ssl: milvusConfig.ssl || false,
             timeout: COLLECTION_CREATE_TIMEOUT_MS,
-        });
+            'grpc.enable_http_proxy': milvusConfig.useSystemProxy ? 1 : 0,
+        } as any);
     }
 
     /**

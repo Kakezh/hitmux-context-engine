@@ -54,7 +54,7 @@ async function writeMerkleSnapshot(homeDir: string, codebasePath: string, files:
     );
 }
 
-test("get_indexing_status syncs cloud state before reading the snapshot", async () => {
+test("get_indexing_status syncs vector database state before reading the snapshot", async () => {
     await withTempHome(async (tempRoot) => {
         const codebasePath = path.join(tempRoot, "repo");
         await mkdir(codebasePath, { recursive: true });
@@ -64,7 +64,7 @@ test("get_indexing_status syncs cloud state before reading the snapshot", async 
 
         const handlers = new ToolHandlers({} as any, snapshotManager);
         let syncCalls = 0;
-        (handlers as any).syncIndexedCodebasesFromCloud = async () => {
+        (handlers as any).syncIndexedCodebasesFromVectorDatabase = async () => {
             syncCalls += 1;
             snapshotManager.setCodebaseIndexed(codebasePath, {
                 indexedFiles: 3,
@@ -83,7 +83,28 @@ test("get_indexing_status syncs cloud state before reading the snapshot", async 
     });
 });
 
-test("get_indexing_status does not let cloud recovery mark active indexing as completed", async () => {
+test("get_indexing_status does not hang when vector database sync collection listing stalls", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => new Promise<string[]>(() => {}),
+            }),
+        };
+
+        const handlers = new ToolHandlers(context as any, snapshotManager);
+        (handlers as any).vectorDatabaseSyncTimeoutMs = 5;
+        const result = await handlers.handleGetIndexingStatus({ path: codebasePath });
+
+        assert.equal(result.isError, undefined);
+        assert.match(result.content[0].text, /is not indexed/);
+    });
+});
+
+test("get_indexing_status does not let vector database recovery mark active indexing as completed", async () => {
     await withTempHome(async (tempRoot) => {
         const codebasePath = path.join(tempRoot, "repo");
         await mkdir(codebasePath, { recursive: true });
@@ -132,7 +153,7 @@ test("get_indexing_status does not report recovered row count as file count", as
         });
 
         const handlers = new ToolHandlers({} as any, snapshotManager);
-        (handlers as any).syncIndexedCodebasesFromCloud = async () => {};
+        (handlers as any).syncIndexedCodebasesFromVectorDatabase = async () => {};
 
         const result = await handlers.handleGetIndexingStatus({ path: codebasePath });
 
@@ -157,7 +178,7 @@ test("get_indexing_status uses merkle file count for legacy equal file and chunk
         });
 
         const handlers = new ToolHandlers({} as any, snapshotManager);
-        (handlers as any).syncIndexedCodebasesFromCloud = async () => {};
+        (handlers as any).syncIndexedCodebasesFromVectorDatabase = async () => {};
 
         const result = await handlers.handleGetIndexingStatus({ path: codebasePath });
 
@@ -167,7 +188,7 @@ test("get_indexing_status uses merkle file count for legacy equal file and chunk
     });
 });
 
-test("cloud recovery counts distinct relative paths for indexed file count", async () => {
+test("vector database recovery counts distinct relative paths for indexed file count", async () => {
     await withTempHome(async (tempRoot) => {
         const codebasePath = path.join(tempRoot, "repo");
         await mkdir(codebasePath, { recursive: true });

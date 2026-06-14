@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { configManager } from "@hitmux/hitmux-context-engine-core";
 import { createMcpConfig } from "./config.js";
 
 async function withTempConfig(
     configs: { global?: Record<string, unknown>; project?: Record<string, unknown> },
-    run: () => void
+    run: () => void | Promise<void>
 ): Promise<void> {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "hitmux-context-engine-config-test-"));
     const homeDir = path.join(tempRoot, "home");
@@ -31,7 +32,7 @@ async function withTempConfig(
     }
 
     try {
-        run();
+        await run();
     } finally {
         process.chdir(originalCwd);
         if (originalHome === undefined) {
@@ -68,6 +69,80 @@ test("createMcpConfig defaults to OpenRouter qwen embeddings", async () => {
 
         assert.equal(config.embeddingProvider, "OpenRouter");
         assert.equal(config.embeddingModel, "qwen/qwen3-embedding-4b");
+        assert.equal(config.embeddingUseSystemProxy, false);
+        assert.equal(config.databaseUseSystemProxy, false);
+    });
+});
+
+test("ensureGlobalConfigFile creates a commented default global config", async () => {
+    await withTempConfig({}, async () => {
+        const result = configManager.ensureGlobalConfigFile();
+        const content = await readFile(result.path, "utf-8");
+
+        assert.equal(result.created, true);
+        assert.match(result.path, /\.hitmux-context-engine[/\\]config\.conf$/);
+        assert.match(content, /# Hitmux Context Engine global configuration\./);
+        assert.match(content, /# Project config at \.\/\.hitmux-context-engine\/config\.conf overrides matching fields\./);
+        assert.match(content, /embeddingProvider = OpenRouter/);
+        assert.match(content, /embeddingModel = qwen\/qwen3-embedding-4b/);
+        assert.match(content, /# openrouterApiKey = sk-or-your-openrouter-api-key/);
+        assert.match(content, /milvusAddress = localhost:19530/);
+        assert.match(content, /embeddingUseSystemProxy = false/);
+        assert.match(content, /databaseUseSystemProxy = false/);
+
+        const secondResult = configManager.ensureGlobalConfigFile();
+        assert.deepEqual(secondResult, {
+            path: result.path,
+            created: false,
+            updated: false,
+            appendedKeys: []
+        });
+    });
+});
+
+test("ensureGlobalConfigFile completes missing fields in an existing config as comments", async () => {
+    await withTempConfig({}, async () => {
+        const configPath = configManager.getGlobalConfigFilePath();
+        await mkdir(path.dirname(configPath), { recursive: true });
+        await writeFile(configPath, [
+            "# existing config",
+            "embeddingProvider = OpenAI",
+            "# milvusAddress = localhost:19530",
+            ""
+        ].join("\n"), "utf-8");
+
+        const result = configManager.ensureGlobalConfigFile();
+        const content = await readFile(configPath, "utf-8");
+
+        assert.equal(result.created, false);
+        assert.equal(result.updated, true);
+        assert.ok(result.appendedKeys.includes("embeddingModel"));
+        assert.ok(result.appendedKeys.includes("openrouterApiKey"));
+        assert.ok(!result.appendedKeys.includes("embeddingProvider"));
+        assert.ok(!result.appendedKeys.includes("milvusAddress"));
+        assert.match(content, /# Missing optional fields added as comments\./);
+        assert.match(content, /# Embedding model name for the selected provider\.\n# embeddingModel = qwen\/qwen3-embedding-4b/);
+        assert.match(content, /# OpenRouter API key when embeddingProvider = OpenRouter\.\n# openrouterApiKey = sk-or-your-openrouter-api-key/);
+        assert.doesNotMatch(content, /# Embedding provider: OpenAI, VoyageAI, Gemini, Ollama, or OpenRouter\.\n# embeddingProvider = OpenRouter/);
+        assert.doesNotMatch(content, /# Milvus or Zilliz Cloud public endpoint\.\n# milvusAddress = localhost:19530/);
+
+        const secondResult = configManager.ensureGlobalConfigFile();
+        assert.equal(secondResult.updated, false);
+        assert.deepEqual(secondResult.appendedKeys, []);
+    });
+});
+
+test("createMcpConfig reads independent proxy toggles", async () => {
+    await withTempConfig({
+        project: {
+            embeddingUseSystemProxy: true,
+            databaseUseSystemProxy: true
+        }
+    }, () => {
+        const config = createMcpConfig();
+
+        assert.equal(config.embeddingUseSystemProxy, true);
+        assert.equal(config.databaseUseSystemProxy, true);
     });
 });
 
