@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { IncrementalIndexTooLargeError } from "@hitmux/hitmux-context-engine-core";
 import { ToolHandlers } from "./handlers.js";
 import { SnapshotManager } from "./snapshot.js";
 
@@ -656,11 +657,12 @@ test("search_code falls back when configured searchTopK or searchThreshold are i
     });
 });
 
-test("search_code reports active automatic sync progress while returning current index results", async () => {
+test("search_code refuses to return stale results while automatic sync is active", async () => {
     await withTempDir(async (tempRoot) => {
         const project = path.join(tempRoot, "repo");
         await mkdir(project, { recursive: true });
 
+        let searchCalls = 0;
         const context = {
             getVectorDatabase: () => ({
                 listCollections: async () => []
@@ -668,14 +670,10 @@ test("search_code reports active automatic sync progress while returning current
             getEmbedding: () => ({
                 getProvider: () => "test"
             }),
-            semanticSearch: async () => [{
-                content: "function runSearch() {}",
-                relativePath: "src/search.ts",
-                startLine: 1,
-                endLine: 1,
-                language: "typescript",
-                score: 1
-            }]
+            semanticSearch: async () => {
+                searchCalls += 1;
+                return [];
+            }
         } as any;
         const snapshotManager = new SnapshotManager();
         snapshotManager.setCodebaseIndexed(project, {
@@ -704,9 +702,162 @@ test("search_code reports active automatic sync progress while returning current
             query: "runSearch"
         });
 
-        assert.equal(result.isError, undefined);
+        assert.equal(result.isError, true);
+        assert.equal(searchCalls, 0);
         assert.match(result.content[0].text, /Automatic sync in progress/);
         assert.match(result.content[0].text, /Progress: 25\.0% \(1\/4\)/);
+    });
+});
+
+test("search_code refreshes an indexed codebase before searching", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        const calls: string[] = [];
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => [],
+                getCollectionRowCount: async () => 2,
+                query: async () => [
+                    { relativePath: "src/search.ts" },
+                    { relativePath: "src/other.ts" }
+                ]
+            }),
+            getCollectionName: () => "code_chunks_repo",
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            reindexByChange: async (codebasePath: string) => {
+                calls.push(`sync:${codebasePath}`);
+                return { added: 1, removed: 0, modified: 0 };
+            },
+            semanticSearch: async (codebasePath: string) => {
+                calls.push(`search:${codebasePath}`);
+                return [{
+                    content: "function runSearch() {}",
+                    relativePath: "src/search.ts",
+                    startLine: 1,
+                    endLine: 1,
+                    language: "typescript",
+                    score: 1
+                }];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch"
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.deepEqual(calls, [`sync:${project}`, `search:${project}`]);
+        const info = snapshotManager.getCodebaseInfo(project) as any;
+        assert.equal(info.indexedFiles, 2);
+        assert.equal(info.totalChunks, 2);
+    });
+});
+
+test("search_code does not return stale results when pre-search sync exceeds the automatic limit", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let searchCalls = 0;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            reindexByChange: async () => {
+                throw new IncrementalIndexTooLargeError(5_001, 5_000, 1);
+            },
+            semanticSearch: async () => {
+                searchCalls += 1;
+                return [];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch"
+        });
+
+        assert.equal(result.isError, true);
+        assert.equal(searchCalls, 0);
+        assert.match(result.content[0].text, /requires a fresh index/);
+        assert.match(result.content[0].text, /index_codebase with incremental=true/);
+        const info = snapshotManager.getCodebaseInfo(project) as any;
+        assert.match(info.syncWarning, /5001 effective lines/);
+    });
+});
+
+test("search_code can skip the pre-search consistency check", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        let syncCalls = 0;
+        let searchCalls = 0;
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            reindexByChange: async () => {
+                syncCalls += 1;
+                throw new Error("should not sync");
+            },
+            semanticSearch: async () => {
+                searchCalls += 1;
+                return [{
+                    content: "function runSearch() {}",
+                    relativePath: "src/search.ts",
+                    startLine: 1,
+                    endLine: 1,
+                    language: "typescript",
+                    score: 1
+                }];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        const result = await handlers.handleSearchCode({
+            path: project,
+            query: "runSearch",
+            skipConsistencyCheck: true
+        });
+
+        assert.equal(result.isError, undefined);
+        assert.equal(syncCalls, 0);
+        assert.equal(searchCalls, 1);
         assert.match(result.content[0].text, /Found 1 results/);
     });
 });
@@ -846,7 +997,7 @@ test("search_code passes validated extensionFilter as a Milvus filter expression
     });
 });
 
-test("search_code validates explicit target role, includeRelated, and trace evidence arguments", async () => {
+test("search_code validates explicit target role and optional boolean arguments", async () => {
     const handlers = createHandlers();
 
     const invalidRole = await handlers.handleSearchCode({
@@ -872,6 +1023,14 @@ test("search_code validates explicit target role, includeRelated, and trace evid
     });
     assert.equal(invalidIncludeTraceEvidence.isError, true);
     assert.match(invalidIncludeTraceEvidence.content[0].text, /includeTraceEvidence/);
+
+    const invalidSkipConsistencyCheck = await handlers.handleSearchCode({
+        path: "/tmp/project",
+        query: "runSearch",
+        skipConsistencyCheck: "true"
+    });
+    assert.equal(invalidSkipConsistencyCheck.isError, true);
+    assert.match(invalidSkipConsistencyCheck.content[0].text, /skipConsistencyCheck/);
 });
 
 test("search_code passes target role options and formats grouped results", async () => {

@@ -200,7 +200,7 @@ test("large automatic incremental sync keeps the old index and records a warning
 
         const context = {
             reindexByChange: async () => {
-                throw new IncrementalIndexTooLargeError(10_001, 10_000, 1);
+                throw new IncrementalIndexTooLargeError(5_001, 5_000, 1);
             }
         } as any;
         const syncManager = new SyncManager(context, snapshotManager);
@@ -210,7 +210,7 @@ test("large automatic incremental sync keeps the old index and records a warning
         const info = snapshotManager.getCodebaseInfo(codebasePath);
         assert.equal(info?.status, "indexed");
         assert.equal(snapshotManager.getIndexedCodebases().includes(codebasePath), true);
-        assert.match((info as any).syncWarning, /10001 effective lines/);
+        assert.match((info as any).syncWarning, /5001 effective lines/);
         assert.match((info as any).syncWarning, /\.hceignore/);
         assert.match((info as any).syncWarning, /index_codebase with incremental=true/);
     });

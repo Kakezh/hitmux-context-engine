@@ -131,6 +131,38 @@ describe('Context indexing lifecycle', () => {
         expect(vectorDatabase.createCollection).toHaveBeenCalled();
         expect(vectorDatabase.insert).toHaveBeenCalled();
     });
+
+    it('weights full indexing progress by file size instead of file count', async () => {
+        const project = path.join(tempRoot, 'weighted-progress-project');
+        await fs.mkdir(project);
+        const smallFile = path.join(project, 'small.ts');
+        const largeFile = path.join(project, 'large.ts');
+        await fs.writeFile(smallFile, 'x');
+        await fs.writeFile(largeFile, 'x'.repeat(10_000));
+
+        const vectorDatabase = createVectorDatabase();
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new OneChunkSplitter(),
+        });
+        const getCodeFilesSpy = jest
+            .spyOn(context as unknown as { getCodeFiles: () => Promise<string[]> }, 'getCodeFiles')
+            .mockResolvedValue([smallFile, largeFile]);
+        const progress: Array<{ phase: string; current: number; total: number; percentage: number }> = [];
+
+        try {
+            await context.indexCodebase(project, update => progress.push(update));
+        } finally {
+            getCodeFilesSpy.mockRestore();
+        }
+
+        const firstFileComplete = progress.find(update => update.phase === 'Processing files (1/2)...');
+        expect(firstFileComplete?.percentage).toBeLessThan(20);
+        expect(progress.some(update => update.percentage === 95)).toBe(true);
+        expect(progress.at(-1)?.percentage).toBe(100);
+    });
 });
 
 async function writeConfig(homeDir: string, config: Record<string, unknown>): Promise<void> {

@@ -3,11 +3,11 @@
 // CRITICAL: Redirect console outputs to stderr IMMEDIATELY to avoid interfering with MCP JSON protocol
 // Only MCP protocol messages should go to stdout
 console.log = (...args: any[]) => {
-    process.stderr.write('[LOG] ' + args.join(' ') + '\n');
+    process.stderr.write("[LOG] " + args.join(" ") + "\n");
 };
 
 console.warn = (...args: any[]) => {
-    process.stderr.write('[WARN] ' + args.join(' ') + '\n');
+    process.stderr.write("[WARN] " + args.join(" ") + "\n");
 };
 
 // console.error already goes to stderr by default
@@ -16,22 +16,34 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
     ListToolsRequestSchema,
-    CallToolRequestSchema
+    CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Context, applySystemProxyPolicy, configManager } from "@hitmux/hitmux-context-engine-core";
+import {
+    Context,
+    applySystemProxyPolicy,
+    configManager,
+} from "@hitmux/hitmux-context-engine-core";
 import { MilvusVectorDatabase } from "@hitmux/hitmux-context-engine-core";
 
 // Import our modular components
-import { createMcpConfig, logConfigurationSummary, showHelpMessage, ContextMcpConfig } from "./config.js";
-import { createEmbeddingInstance, logEmbeddingProviderInfo } from "./embedding.js";
+import {
+    createMcpConfig,
+    logConfigurationSummary,
+    showHelpMessage,
+    ContextMcpConfig,
+} from "./config.js";
+import {
+    createEmbeddingInstance,
+    logEmbeddingProviderInfo,
+} from "./embedding.js";
 import { SnapshotManager } from "./snapshot.js";
 import { SyncManager } from "./sync.js";
 import { ToolHandlers } from "./handlers.js";
 
 applySystemProxyPolicy(false);
 
-process.on('unhandledRejection', (reason) => {
-    console.error('[MCP] Unhandled async error (kept server alive):', reason);
+process.on("unhandledRejection", (reason) => {
+    console.error("[MCP] Unhandled async error (kept server alive):", reason);
 });
 
 class ContextMcpServer {
@@ -44,20 +56,22 @@ class ContextMcpServer {
         backgroundSyncStarted: boolean;
         snapshotValidated: boolean;
     } | null = null;
-    private runtimePromise: Promise<NonNullable<ContextMcpServer["runtime"]>> | null = null;
+    private runtimePromise: Promise<
+        NonNullable<ContextMcpServer["runtime"]>
+    > | null = null;
 
     constructor() {
         // Initialize MCP server
         this.server = new Server(
             {
                 name: "Hitmux Context Engine MCP Server",
-                version: "1.0.0"
+                version: "1.0.0",
             },
             {
                 capabilities: {
-                    tools: {}
-                }
-            }
+                    tools: {},
+                },
+            },
         );
 
         this.snapshotManager = new SnapshotManager();
@@ -69,16 +83,21 @@ class ContextMcpServer {
     private formatToolError(prefix: string, error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         return {
-            content: [{
-                type: "text",
-                text: `${prefix}: ${message}`
-            }],
-            isError: true
+            content: [
+                {
+                    type: "text",
+                    text: `${prefix}: ${message}`,
+                },
+            ],
+            isError: true,
         };
     }
 
     private formatRuntimeInitializationError(error: unknown) {
-        return this.formatToolError("Error initializing Hitmux Context Engine runtime", error);
+        return this.formatToolError(
+            "Error initializing Hitmux Context Engine runtime",
+            error,
+        );
     }
 
     private getConfigReadError(): Error | null {
@@ -90,10 +109,14 @@ class ContextMcpServer {
         const details = errors
             .map((error) => `${error.path}: ${error.message}`)
             .join("\n");
-        return new Error(`Invalid config.conf. Fix the configuration before using MCP tools.\n${details}`);
+        return new Error(
+            `Invalid config.conf. Fix the configuration before using MCP tools.\n${details}`,
+        );
     }
 
-    private async getRuntime(): Promise<NonNullable<ContextMcpServer["runtime"]>> {
+    private async getRuntime(): Promise<
+        NonNullable<ContextMcpServer["runtime"]>
+    > {
         if (this.runtime) {
             return this.runtime;
         }
@@ -102,28 +125,34 @@ class ContextMcpServer {
             return this.runtimePromise;
         }
 
-        this.runtimePromise = Promise.resolve().then(async () => {
-            const configError = this.getConfigReadError();
-            if (configError) {
-                throw configError;
-            }
+        this.runtimePromise = Promise.resolve()
+            .then(async () => {
+                const configError = this.getConfigReadError();
+                if (configError) {
+                    throw configError;
+                }
 
-            const config = createMcpConfig();
-            logConfigurationSummary(config);
+                const config = createMcpConfig();
+                logConfigurationSummary(config);
 
-            const runtime = await this.createRuntime(config);
-            this.runtime = runtime;
-            return runtime;
-        }).finally(() => {
-            this.runtimePromise = null;
-        });
+                const runtime = await this.createRuntime(config);
+                this.runtime = runtime;
+                return runtime;
+            })
+            .finally(() => {
+                this.runtimePromise = null;
+            });
 
         return this.runtimePromise;
     }
 
-    private async createRuntime(config: ContextMcpConfig): Promise<NonNullable<ContextMcpServer["runtime"]>> {
+    private async createRuntime(
+        config: ContextMcpConfig,
+    ): Promise<NonNullable<ContextMcpServer["runtime"]>> {
         // Initialize embedding provider
-        console.log(`[EMBEDDING] Initializing embedding provider: ${config.embeddingProvider}`);
+        console.log(
+            `[EMBEDDING] Initializing embedding provider: ${config.embeddingProvider}`,
+        );
         console.log(`[EMBEDDING] Using model: ${config.embeddingModel}`);
 
         const embedding = createEmbeddingInstance(config);
@@ -133,7 +162,7 @@ class ContextMcpServer {
         const vectorDatabase = new MilvusVectorDatabase({
             address: config.milvusAddress,
             ...(config.milvusToken && { token: config.milvusToken }),
-            useSystemProxy: config.databaseUseSystemProxy
+            useSystemProxy: config.databaseUseSystemProxy,
         });
 
         // Initialize Hitmux Context Engine
@@ -145,20 +174,24 @@ class ContextMcpServer {
                 mode: config.codebaseIdentityMode,
                 customIdentity: config.codebaseIdentity,
                 globalName: config.globalCollectionName,
-                gitRemoteName: config.gitRemoteName
-            }
+                gitRemoteName: config.gitRemoteName,
+            },
         });
 
         // Initialize managers
         const syncManager = new SyncManager(context, this.snapshotManager);
-        const toolHandlers = new ToolHandlers(context, this.snapshotManager, syncManager);
+        const toolHandlers = new ToolHandlers(
+            context,
+            this.snapshotManager,
+            syncManager,
+        );
 
         return {
             context,
             syncManager,
             toolHandlers,
             backgroundSyncStarted: false,
-            snapshotValidated: false
+            snapshotValidated: false,
         };
     }
 
@@ -166,10 +199,10 @@ class ContextMcpServer {
         const index_description = `
 Index a codebase directory to enable semantic search using a configurable code splitter.
 
-⚠️ **IMPORTANT**:
+**IMPORTANT**:
 - You MUST provide an absolute path to the target codebase.
 
-✨ **Usage Guidance**:
+**Usage Guidance**:
 - This tool is typically used when search fails due to an unindexed codebase.
 - Before first indexing, create a project ignore file such as .hceignore when generated, large, or private paths should be excluded.
 - The indexer automatically loads .*ignore files it finds in the project tree, including .hceignore, .gitignore, and .cursorignore. Use ignoreFiles only for extra non-default ignore file paths.
@@ -177,16 +210,15 @@ Index a codebase directory to enable semantic search using a configurable code s
 - Use force=true only when a full rebuild is required, such as after changing embedding configuration, splitter/schema compatibility, or when index/snapshot state is no longer trustworthy. Force re-indexing drops the existing index and should not be the default fix for ordinary file changes.
 `;
 
-
         const search_description = `
 Search the indexed codebase with code-search style queries within a specified absolute path.
 
-⚠️ **IMPORTANT**:
+**IMPORTANT**:
 - You MUST provide an absolute path.
 - Do NOT pass a broad natural-language sentence as the only query when the user is asking where behavior is implemented.
 - Rewrite natural-language requests into focused code-search terms before calling this tool.
 
-🎯 **When to Use**:
+**When to Use**:
 This tool is versatile and can be used before completing various tasks to retrieve relevant context:
 - **Code search**: Find specific functions, classes, or implementations
 - **Context-aware assistance**: Gather relevant code context before making changes
@@ -196,7 +228,7 @@ This tool is versatile and can be used before completing various tasks to retrie
 - **Feature development**: Understand existing architecture and similar implementations
 - **Duplicate detection**: Identify redundant or duplicated code patterns across the codebase
 
-✨ **Usage Guidance**:
+**Usage Guidance**:
 - If the codebase is not indexed, this tool will return a clear error message indicating that indexing is required first and recommending a project ignore file such as .hceignore.
 - You can then use the index_codebase tool to index the codebase before searching again.
 - For natural-language discovery tasks, generate one focused query per likely implementation angle instead of one broad sentence.
@@ -204,13 +236,13 @@ This tool is versatile and can be used before completing various tasks to retrie
 - Include scope hints such as client, server, shared, UI, network, rendering, storage, validation, worker, or route when relevant.
 - Prefer several short searches and compare their results by path, symbol, and content evidence.
 
-✅ **Good query style**:
+**Good query style**:
 - "authentication middleware token validation"
 - "AuthMiddleware validateToken bearer token"
 - "src/auth middleware token validation"
 - "database migration schema version rollback"
 
-❌ **Poor query style**:
+**Poor query style**:
 - "where is the code for this behavior"
 - "find the thing that handles the user request"
 `;
@@ -227,60 +259,68 @@ This tool is versatile and can be used before completing various tasks to retrie
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to index.`
+                                    description: `ABSOLUTE path to the codebase directory to index.`,
                                 },
                                 force: {
                                     type: "boolean",
-                                    description: "Full rebuild for exceptional cases only. Drops and recreates the existing index; prefer incremental=true for ordinary added, modified, removed, or newly ignored files.",
-                                    default: false
+                                    description:
+                                        "Full rebuild for exceptional cases only. Drops and recreates the existing index; prefer incremental=true for ordinary added, modified, removed, or newly ignored files.",
+                                    default: false,
                                 },
                                 incremental: {
                                     type: "boolean",
-                                    description: "Manually sync an already indexed codebase without dropping or rebuilding the full index. Handles added, modified, removed, and newly ignored files. Use this for normal index updates and after reviewing a large automatic incremental-sync warning. Cannot be combined with force=true or dryRun=true.",
-                                    default: false
+                                    description:
+                                        "Manually sync an already indexed codebase without dropping or rebuilding the full index. Handles added, modified, removed, and newly ignored files. Use this for normal index updates and after reviewing a large automatic incremental-sync warning. Cannot be combined with force=true or dryRun=true.",
+                                    default: false,
                                 },
                                 splitter: {
                                     type: "string",
-                                    description: "Optional code splitter override: 'ast' for syntax-aware splitting with automatic fallback, 'langchain' for character-based splitting. Omit to use config.splitterType, then ast.",
-                                    enum: ["ast", "langchain"]
+                                    description:
+                                        "Optional code splitter override: 'ast' for syntax-aware splitting with automatic fallback, 'langchain' for character-based splitting. Omit to use config.splitterType, then ast.",
+                                    enum: ["ast", "langchain"],
                                 },
                                 customExtensions: {
                                     type: "array",
                                     items: {
-                                        type: "string"
+                                        type: "string",
                                     },
-                                    description: "Optional: Additional file extensions to include beyond defaults (e.g., ['.vue', '.svelte', '.astro']). Extensions should include the dot prefix or will be automatically added",
-                                    default: []
+                                    description:
+                                        "Optional: Additional file extensions to include beyond defaults (e.g., ['.vue', '.svelte', '.astro']). Extensions should include the dot prefix or will be automatically added",
+                                    default: [],
                                 },
                                 ignorePatterns: {
                                     type: "array",
                                     items: {
-                                        type: "string"
+                                        type: "string",
                                     },
-                                    description: "Optional: Additional ignore patterns to exclude specific files/directories beyond defaults. Only include this parameter if the user explicitly requests custom ignore patterns (e.g., ['static/**', '*.tmp', 'private/**'])",
-                                    default: []
+                                    description:
+                                        "Optional: Additional ignore patterns to exclude specific files/directories beyond defaults. Only include this parameter if the user explicitly requests custom ignore patterns (e.g., ['static/**', '*.tmp', 'private/**'])",
+                                    default: [],
                                 },
                                 ignoreFiles: {
                                     type: "array",
                                     items: {
-                                        type: "string"
+                                        type: "string",
                                     },
-                                    description: "Optional: Additional ignore files to load beyond automatically discovered .*ignore files. Relative paths are resolved from the codebase root (e.g., ['config/index.ignore']).",
-                                    default: []
+                                    description:
+                                        "Optional: Additional ignore files to load beyond automatically discovered .*ignore files. Relative paths are resolved from the codebase root (e.g., ['config/index.ignore']).",
+                                    default: [],
                                 },
                                 maxDepth: {
                                     type: "number",
-                                    description: "Optional: Maximum directory depth to traverse from the codebase root. 0 indexes only files directly in the root.",
-                                    minimum: 0
+                                    description:
+                                        "Optional: Maximum directory depth to traverse from the codebase root. 0 indexes only files directly in the root.",
+                                    minimum: 0,
                                 },
                                 dryRun: {
                                     type: "boolean",
-                                    description: "Preview the files that would be indexed without creating collections, embedding, or writing index data.",
-                                    default: false
-                                }
+                                    description:
+                                        "Preview the files that would be indexed without creating collections, embedding, or writing index data.",
+                                    default: false,
+                                },
                             },
-                            required: ["path"]
-                        }
+                            required: ["path"],
+                        },
                     },
                     {
                         name: "search_code",
@@ -290,89 +330,116 @@ This tool is versatile and can be used before completing various tasks to retrie
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to search in.`
+                                    description: `ABSOLUTE path to the codebase directory to search in.`,
                                 },
                                 query: {
                                     type: "string",
-                                    description: "Focused code-search query. Rewrite natural-language requests into likely identifiers, filenames, path words, English domain terms, and scope hints. Prefer multiple short searches over one broad sentence."
+                                    description:
+                                        "Focused code-search query. Rewrite natural-language requests into likely identifiers, filenames, path words, English domain terms, and scope hints. Prefer multiple short searches over one broad sentence.",
                                 },
                                 limit: {
                                     type: "number",
-                                    description: "Optional override for the maximum number of results to return. Leave empty for the bounded default result set; use a specific value only when you need more or fewer results."
+                                    description:
+                                        "Optional override for the maximum number of results to return. Leave empty for the bounded default result set; use a specific value only when you need more or fewer results.",
                                 },
                                 targetRole: {
                                     type: "string",
-                                    enum: ["implementation", "test", "docs", "config", "all"],
-                                    description: "Optional explicit search target. Defaults to implementation, which keeps tests, docs, config, and barrel exports out of the primary result group."
+                                    enum: [
+                                        "implementation",
+                                        "test",
+                                        "docs",
+                                        "config",
+                                        "all",
+                                    ],
+                                    description:
+                                        "Optional explicit search target. Defaults to implementation, which keeps tests, docs, config, and barrel exports out of the primary result group.",
                                 },
                                 includeRelated: {
                                     type: "boolean",
-                                    description: "Optional: include non-primary result groups such as entry/exports, related tests, docs, and config. Defaults to true.",
-                                    default: true
+                                    description:
+                                        "Optional: include non-primary result groups such as entry/exports, related tests, docs, and config. Defaults to true.",
+                                    default: true,
                                 },
                                 includeTraceEvidence: {
                                     type: "boolean",
-                                    description: "Optional: attach compact trace_symbol evidence for a small number of top implementation or entry results. Defaults to false.",
-                                    default: false
+                                    description:
+                                        "Optional: attach compact trace_symbol evidence for a small number of top implementation or entry results. Defaults to false.",
+                                    default: false,
+                                },
+                                skipConsistencyCheck: {
+                                    type: "boolean",
+                                    description:
+                                        "Optional: skip the pre-search incremental sync and allow searching the current index even if it may be stale or an automatic sync is in progress. Defaults to false.",
+                                    default: false,
                                 },
                                 extensionFilter: {
                                     type: "array",
                                     items: {
-                                        type: "string"
+                                        type: "string",
                                     },
-                                    description: "Optional: List of file extensions to filter results. (e.g., ['.ts','.py']).",
-                                    default: []
-                                }
+                                    description:
+                                        "Optional: List of file extensions to filter results. (e.g., ['.ts','.py']).",
+                                    default: [],
+                                },
                             },
-                            required: ["path", "query"]
-                        }
+                            required: ["path", "query"],
+                        },
                     },
                     {
                         name: "trace_symbol",
-                        description: "Trace a symbol through current source files. Finds definitions, references, imports, exports, and related tests without requiring a schema migration.",
+                        description:
+                            "Trace a symbol through current source files. Finds definitions, references, imports, exports, and related tests without requiring a schema migration.",
                         inputSchema: {
                             type: "object",
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: "ABSOLUTE path to the codebase directory to trace in."
+                                    description:
+                                        "ABSOLUTE path to the codebase directory to trace in.",
                                 },
                                 symbol: {
                                     type: "string",
-                                    description: "Identifier to trace, such as a class, function, method, type, or variable name."
+                                    description:
+                                        "Identifier to trace, such as a class, function, method, type, or variable name.",
                                 },
                                 startPath: {
                                     type: "string",
-                                    description: "Optional relative or absolute file path to scan first, usually a top search result or known entry point."
+                                    description:
+                                        "Optional relative or absolute file path to scan first, usually a top search result or known entry point.",
                                 },
                                 startLine: {
                                     type: "number",
-                                    description: "Optional 1-based start line inside startPath to prioritize evidence near a current search result.",
-                                    minimum: 1
+                                    description:
+                                        "Optional 1-based start line inside startPath to prioritize evidence near a current search result.",
+                                    minimum: 1,
                                 },
                                 endLine: {
                                     type: "number",
-                                    description: "Optional 1-based end line inside startPath to prioritize evidence near a current search result.",
-                                    minimum: 1
+                                    description:
+                                        "Optional 1-based end line inside startPath to prioritize evidence near a current search result.",
+                                    minimum: 1,
                                 },
                                 maxFiles: {
                                     type: "number",
-                                    description: "Optional maximum number of source files to scan. Defaults to 1000.",
-                                    minimum: 1
+                                    description:
+                                        "Optional maximum number of source files to scan. Defaults to 1000.",
+                                    minimum: 1,
                                 },
                                 maxReferences: {
                                     type: "number",
-                                    description: "Optional maximum number of entries per evidence section. Defaults to 40.",
-                                    minimum: 1
+                                    description:
+                                        "Optional maximum number of entries per evidence section. Defaults to 40.",
+                                    minimum: 1,
                                 },
                                 includeTests: {
                                     type: "boolean",
-                                    description: "Optional: include related test evidence. Defaults to true.",
-                                    default: true
-                                }
+                                    description:
+                                        "Optional: include related test evidence. Defaults to true.",
+                                    default: true,
+                                },
                             },
-                            required: ["path", "symbol"]
-                        }
+                            required: ["path", "symbol"],
+                        },
                     },
                     {
                         name: "clear_index",
@@ -382,11 +449,11 @@ This tool is versatile and can be used before completing various tasks to retrie
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to clear.`
-                                }
+                                    description: `ABSOLUTE path to the codebase directory to clear.`,
+                                },
                             },
-                            required: ["path"]
-                        }
+                            required: ["path"],
+                        },
                     },
                     {
                         name: "get_indexing_status",
@@ -396,70 +463,92 @@ This tool is versatile and can be used before completing various tasks to retrie
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to check status for.`
-                                }
+                                    description: `ABSOLUTE path to the codebase directory to check status for.`,
+                                },
                             },
-                            required: ["path"]
-                        }
+                            required: ["path"],
+                        },
                     },
-                ]
+                ],
             };
         });
 
         // Handle tool execution
-        this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-            const { name, arguments: args } = request.params;
-            let runtime: NonNullable<ContextMcpServer["runtime"]>;
-            try {
-                runtime = await this.getRuntime();
-                if (!runtime.snapshotValidated) {
-                    await runtime.toolHandlers.validateLegacyZeroEntries();
-                    await runtime.toolHandlers.validateIndexedCollections();
-                    runtime.snapshotValidated = true;
+        this.server.setRequestHandler(
+            CallToolRequestSchema,
+            async (request) => {
+                const { name, arguments: args } = request.params;
+                let runtime: NonNullable<ContextMcpServer["runtime"]>;
+                try {
+                    runtime = await this.getRuntime();
+                    if (!runtime.snapshotValidated) {
+                        await runtime.toolHandlers.validateLegacyZeroEntries();
+                        await runtime.toolHandlers.validateIndexedCollections();
+                        runtime.snapshotValidated = true;
+                    }
+                    if (!runtime.backgroundSyncStarted) {
+                        console.log(
+                            "[SYNC-DEBUG] Initializing background sync after first successful runtime initialization...",
+                        );
+                        runtime.syncManager.startBackgroundSync();
+                        runtime.backgroundSyncStarted = true;
+                    }
+                } catch (error) {
+                    return this.formatRuntimeInitializationError(error);
                 }
-                if (!runtime.backgroundSyncStarted) {
-                    console.log('[SYNC-DEBUG] Initializing background sync after first successful runtime initialization...');
-                    runtime.syncManager.startBackgroundSync();
-                    runtime.backgroundSyncStarted = true;
-                }
-            } catch (error) {
-                return this.formatRuntimeInitializationError(error);
-            }
 
-            try {
-                switch (name) {
-                    case "index_codebase":
-                        return await runtime.toolHandlers.handleIndexCodebase(args);
-                    case "search_code":
-                        return await runtime.toolHandlers.handleSearchCode(args);
-                    case "trace_symbol":
-                        return await runtime.toolHandlers.handleTraceSymbol(args);
-                    case "clear_index":
-                        return await runtime.toolHandlers.handleClearIndex(args);
-                    case "get_indexing_status":
-                        return await runtime.toolHandlers.handleGetIndexingStatus(args);
+                try {
+                    switch (name) {
+                        case "index_codebase":
+                            return await runtime.toolHandlers.handleIndexCodebase(
+                                args,
+                            );
+                        case "search_code":
+                            return await runtime.toolHandlers.handleSearchCode(
+                                args,
+                            );
+                        case "trace_symbol":
+                            return await runtime.toolHandlers.handleTraceSymbol(
+                                args,
+                            );
+                        case "clear_index":
+                            return await runtime.toolHandlers.handleClearIndex(
+                                args,
+                            );
+                        case "get_indexing_status":
+                            return await runtime.toolHandlers.handleGetIndexingStatus(
+                                args,
+                            );
 
-                    default:
-                        return this.formatToolError("Unknown tool", name);
+                        default:
+                            return this.formatToolError("Unknown tool", name);
+                    }
+                } catch (error) {
+                    console.error(`[MCP] Tool '${name}' failed:`, error);
+                    return this.formatToolError(
+                        `Error running tool '${name}'`,
+                        error,
+                    );
                 }
-            } catch (error) {
-                console.error(`[MCP] Tool '${name}' failed:`, error);
-                return this.formatToolError(`Error running tool '${name}'`, error);
-            }
-        });
+            },
+        );
     }
 
     async start() {
-        console.log('[SYNC-DEBUG] MCP server start() method called');
-        console.log('Starting Context MCP server...');
+        console.log("[SYNC-DEBUG] MCP server start() method called");
+        console.log("Starting Context MCP server...");
 
         const transport = new StdioServerTransport();
-        console.log('[SYNC-DEBUG] StdioServerTransport created, attempting server connection...');
+        console.log(
+            "[SYNC-DEBUG] StdioServerTransport created, attempting server connection...",
+        );
 
         await this.server.connect(transport);
         console.log("MCP server started and listening on stdio.");
-        console.log('[SYNC-DEBUG] Server connection established successfully');
-        console.log('[SYNC-DEBUG] MCP protocol ready. Runtime config will be loaded on first tool call.');
+        console.log("[SYNC-DEBUG] Server connection established successfully");
+        console.log(
+            "[SYNC-DEBUG] MCP protocol ready. Runtime config will be loaded on first tool call.",
+        );
     }
 }
 
@@ -469,16 +558,20 @@ async function main() {
     const args = process.argv.slice(2);
 
     // Show help if requested
-    if (args.includes('--help') || args.includes('-h')) {
+    if (args.includes("--help") || args.includes("-h")) {
         showHelpMessage();
         process.exit(0);
     }
 
     const ensureConfigResult = configManager.ensureGlobalConfigFile();
     if (ensureConfigResult.created) {
-        console.log(`[MCP] Created default global config file: ${ensureConfigResult.path}`);
+        console.log(
+            `[MCP] Created default global config file: ${ensureConfigResult.path}`,
+        );
     } else if (ensureConfigResult.updated) {
-        console.log(`[MCP] Completed global config comments for missing fields: ${ensureConfigResult.appendedKeys.join(', ')}`);
+        console.log(
+            `[MCP] Completed global config comments for missing fields: ${ensureConfigResult.appendedKeys.join(", ")}`,
+        );
     }
 
     const server = new ContextMcpServer();
@@ -486,12 +579,12 @@ async function main() {
 }
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
+process.on("SIGINT", () => {
     console.error("Received SIGINT, shutting down gracefully...");
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on("SIGTERM", () => {
     console.error("Received SIGTERM, shutting down gracefully...");
     process.exit(0);
 });

@@ -99,3 +99,31 @@ test("clear_index clears collection-known codebase after snapshot state is missi
         assert.equal(snapshotManager.getCodebaseStatus(codebasePath), "not_found");
     });
 });
+
+test("clear_index refuses to clear while another writer holds the index lock", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(codebasePath, {
+            indexedFiles: 1,
+            totalChunks: 2,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+
+        const lockPath = path.join(tempRoot, "home", ".hitmux-context-engine", "mcp-sync.lock");
+        await mkdir(lockPath, { recursive: true });
+
+        const contextStub = createContextStub();
+        const handlers = new ToolHandlers(contextStub.context, snapshotManager);
+
+        const result = await handlers.handleClearIndex({ path: codebasePath });
+
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /already indexing, clearing, or syncing/);
+        assert.deepEqual(contextStub.clearedPaths, []);
+        assert.equal(snapshotManager.getCodebaseStatus(codebasePath), "indexed");
+    });
+});

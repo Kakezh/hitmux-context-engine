@@ -65,7 +65,7 @@ test("parallel index_codebase calls for the same path start only one background 
         assert.equal(backgroundStarts, 1);
         assert.equal(first.isError, undefined);
         assert.equal(second.isError, true);
-        assert.match(second.content[0].text, /already being indexed/);
+        assert.match(second.content[0].text, /already indexing, clearing, or syncing/);
         assert.equal(snapshotManager.getCodebaseStatus(codebasePath), "indexing");
     });
 });
@@ -100,6 +100,6 @@ test("parallel forced index_codebase calls do not replace an active background j
         assert.equal(backgroundStarts, 1);
         assert.equal(first.isError, undefined);
         assert.equal(second.isError, true);
-        assert.match(second.content[0].text, /already being indexed/);
+        assert.match(second.content[0].text, /already indexing, clearing, or syncing/);
     });
 });

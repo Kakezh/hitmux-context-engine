@@ -74,6 +74,15 @@ interface ReindexByChangeOptions {
     skipEffectiveLineLimit?: boolean;
 }
 
+interface FileProcessingProgress {
+    filePath: string;
+    fileIndex: number;
+    totalFiles: number;
+    processedChunks: number;
+    totalChunks: number;
+    fileProgress: number;
+}
+
 /**
  * Thrown when the embedding API fails (quota exhausted, auth failure,
  * network error, etc.). Propagates through processFileList so callers
@@ -91,7 +100,7 @@ export class EmbeddingError extends Error {
     }
 }
 
-const DEFAULT_AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT = 10_000;
+const DEFAULT_AUTOMATIC_INCREMENTAL_EFFECTIVE_LINE_LIMIT = 5_000;
 
 export class IndexingVerificationError extends Error {
     constructor(message: string) {
@@ -656,29 +665,33 @@ export class Context {
             return { indexedFiles: 0, totalChunks: 0, status: 'completed' };
         }
 
-        // 3. Process each file with streaming chunk processing
-        // Reserve 10% for preparation, 90% for actual indexing
+        // 3. Process each file with streaming chunk processing.
+        // Reserve 10% for preparation/scanning and 5% for final verification.
         const indexingStartPercentage = 10;
-        const indexingEndPercentage = 100;
-        const indexingRange = indexingEndPercentage - indexingStartPercentage;
+        const indexingEndPercentage = 95;
+        const progressTracker = await this.createWeightedFileProgressTracker(
+            codeFiles,
+            indexingStartPercentage,
+            indexingEndPercentage,
+            progressCallback
+        );
 
         const result = await this.processFileList(
             codeFiles,
             codebasePath,
             (filePath, fileIndex, totalFiles) => {
-                // Calculate progress percentage
-                const progressPercentage = indexingStartPercentage + (fileIndex / totalFiles) * indexingRange;
-
                 console.log(`[Context] 📊 Processed ${fileIndex}/${totalFiles} files`);
-                progressCallback?.({
-                    phase: `Processing files (${fileIndex}/${totalFiles})...`,
-                    current: fileIndex,
-                    total: totalFiles,
-                    percentage: Math.round(progressPercentage)
-                });
+                progressTracker.completeFile(filePath, `Processing files (${fileIndex}/${totalFiles})...`);
             },
             splitter,
-            signal
+            signal,
+            (progress) => {
+                progressTracker.updateFile(
+                    progress.filePath,
+                    progress.fileProgress,
+                    `Processing ${path.relative(codebasePath, progress.filePath)} (${progress.processedChunks}/${progress.totalChunks} chunks)...`
+                );
+            }
         );
 
         await this.verifyIndexedCollection(codebasePath, result.totalChunks);
@@ -747,23 +760,52 @@ export class Context {
             }
         }
 
-        let processedChanges = 0;
-        const updateProgress = (phase: string) => {
-            processedChanges++;
-            const percentage = Math.round((processedChanges / (removed.length + modified.length + added.length)) * 100);
-            progressCallback?.({ phase, current: processedChanges, total: totalChanges, percentage });
+        const fileWeights = await this.getFileProcessingWeights(filesToIndex);
+        const deletionWeight = 1;
+        const deletionWeightTotal = (removed.length + modified.length) * deletionWeight;
+        const totalWorkWeight = Math.max(deletionWeightTotal + fileWeights.totalWeight, 1);
+        let completedWorkWeight = 0;
+        let lastProgressPercentage = -1;
+        const completedIndexFiles = new Set<string>();
+        const emitProgress = (phase: string, currentWorkWeight: number) => {
+            const percentage = Math.max(0, Math.min(100, Math.round((currentWorkWeight / totalWorkWeight) * 100)));
+            if (percentage === lastProgressPercentage && percentage !== 100) {
+                return;
+            }
+            lastProgressPercentage = percentage;
+            progressCallback?.({
+                phase,
+                current: Math.round(currentWorkWeight),
+                total: Math.round(totalWorkWeight),
+                percentage
+            });
+        };
+        const completeDeletionWork = (phase: string) => {
+            completedWorkWeight += deletionWeight;
+            emitProgress(phase, completedWorkWeight);
+        };
+        const updateIndexFileProgress = (filePath: string, fileProgress: number, phase: string) => {
+            const fileWeight = fileWeights.weights.get(filePath) || 1;
+            emitProgress(phase, completedWorkWeight + fileWeight * Math.max(0, Math.min(1, fileProgress)));
+        };
+        const completeIndexFile = (filePath: string, phase: string) => {
+            if (!completedIndexFiles.has(filePath)) {
+                completedIndexFiles.add(filePath);
+                completedWorkWeight += fileWeights.weights.get(filePath) || 1;
+            }
+            emitProgress(phase, completedWorkWeight);
         };
 
         // Handle removed files
         for (const file of removed) {
             await this.deleteFileChunks(collectionName, file);
-            updateProgress(`Removed ${file}`);
+            completeDeletionWork(`Removed ${file}`);
         }
 
         // Handle modified files
         for (const file of modified) {
             await this.deleteFileChunks(collectionName, file);
-            updateProgress(`Deleted old chunks for ${file}`);
+            completeDeletionWork(`Deleted old chunks for ${file}`);
         }
 
         if (filesToIndex.length > 0) {
@@ -771,9 +813,17 @@ export class Context {
                 filesToIndex,
                 codebasePath,
                 (filePath, fileIndex, totalFiles) => {
-                    updateProgress(`Indexed ${filePath} (${fileIndex}/${totalFiles})`);
+                    completeIndexFile(filePath, `Indexed ${filePath} (${fileIndex}/${totalFiles})`);
                 },
-                splitter
+                splitter,
+                undefined,
+                (progress) => {
+                    updateIndexFileProgress(
+                        progress.filePath,
+                        progress.fileProgress,
+                        `Indexing ${path.relative(codebasePath, progress.filePath)} (${progress.processedChunks}/${progress.totalChunks} chunks)`
+                    );
+                }
             );
         }
 
@@ -2487,8 +2537,78 @@ export class Context {
         return files;
     }
 
+    private async getFileProcessingWeights(filePaths: string[]): Promise<{ weights: Map<string, number>; totalWeight: number }> {
+        const weights = new Map<string, number>();
+        let totalWeight = 0;
+
+        await Promise.all(filePaths.map(async (filePath) => {
+            let weight = 1;
+            try {
+                const stat = await fs.promises.stat(filePath);
+                weight = Math.max(1, stat.size);
+            } catch (error) {
+                console.warn(`[Context] ⚠️  Could not stat file ${filePath} for progress weighting: ${error}`);
+            }
+            weights.set(filePath, weight);
+            totalWeight += weight;
+        }));
+
+        return {
+            weights,
+            totalWeight
+        };
+    }
+
+    private async createWeightedFileProgressTracker(
+        filePaths: string[],
+        startPercentage: number,
+        endPercentage: number,
+        progressCallback?: (progress: { phase: string; current: number; total: number; percentage: number }) => void
+    ): Promise<{
+        updateFile: (filePath: string, fileProgress: number, phase: string) => void;
+        completeFile: (filePath: string, phase: string) => void;
+    }> {
+        const fileWeights = await this.getFileProcessingWeights(filePaths);
+        const completedFiles = new Set<string>();
+        let completedWeight = 0;
+        let lastPercentage = -1;
+
+        const emit = (phase: string, currentWeight: number, force: boolean = false) => {
+            const totalWeight = Math.max(fileWeights.totalWeight, 1);
+            const safeProgress = Math.max(0, Math.min(1, currentWeight / totalWeight));
+            const percentage = Math.max(
+                startPercentage,
+                Math.min(endPercentage, Math.round(startPercentage + safeProgress * (endPercentage - startPercentage)))
+            );
+            if (!force && percentage === lastPercentage) {
+                return;
+            }
+            lastPercentage = percentage;
+            progressCallback?.({
+                phase,
+                current: Math.round(currentWeight),
+                total: Math.round(totalWeight),
+                percentage
+            });
+        };
+
+        return {
+            updateFile: (filePath: string, fileProgress: number, phase: string) => {
+                const fileWeight = fileWeights.weights.get(filePath) || 1;
+                emit(phase, completedWeight + fileWeight * Math.max(0, Math.min(1, fileProgress)));
+            },
+            completeFile: (filePath: string, phase: string) => {
+                if (!completedFiles.has(filePath)) {
+                    completedFiles.add(filePath);
+                    completedWeight += fileWeights.weights.get(filePath) || 1;
+                }
+                emit(phase, completedWeight, true);
+            }
+        };
+    }
+
     /**
- * Process a list of files with streaming chunk processing
+	 * Process a list of files with streaming chunk processing
  * @param filePaths Array of file paths to process
  * @param codebasePath Base path for the codebase
  * @param onFileProcessed Callback called when each file is processed
@@ -2499,7 +2619,8 @@ export class Context {
         codebasePath: string,
         onFileProcessed?: (filePath: string, fileIndex: number, totalFiles: number) => void,
         splitter: Splitter = this.codeSplitter,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        onFileProgress?: (progress: FileProcessingProgress) => void
     ): Promise<{ processedFiles: number; totalChunks: number; status: 'completed' | 'limit_reached' }> {
         const isHybrid = this.getIsHybrid();
         const EMBEDDING_BATCH_SIZE = Math.max(1, Math.floor(configManager.getNumber('embeddingBatchSize') || 32));
@@ -2590,7 +2711,8 @@ export class Context {
             }
 
             // Add chunks to buffer
-            for (const chunk of chunks) {
+            for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+                const chunk = chunks[chunkIndex];
                 chunkBuffer.push({ chunk, codebasePath });
                 totalChunks++;
 
@@ -2607,9 +2729,28 @@ export class Context {
                     limitReached = true;
                     break; // Exit the inner loop (over chunks)
                 }
+
+                onFileProgress?.({
+                    filePath,
+                    fileIndex: i + 1,
+                    totalFiles: filePaths.length,
+                    processedChunks: chunkIndex + 1,
+                    totalChunks: chunks.length,
+                    fileProgress: (chunkIndex + 1) / chunks.length
+                });
             }
 
             processedFiles++;
+            if (chunks.length === 0) {
+                onFileProgress?.({
+                    filePath,
+                    fileIndex: i + 1,
+                    totalFiles: filePaths.length,
+                    processedChunks: 0,
+                    totalChunks: 0,
+                    fileProgress: 1
+                });
+            }
             onFileProcessed?.(filePath, i + 1, filePaths.length);
 
             if (limitReached) {

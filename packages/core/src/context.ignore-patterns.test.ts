@@ -306,14 +306,14 @@ describe('Context ignore pattern isolation', () => {
             await context.reindexByChange(project);
             vectorDatabase.insert.mockClear();
 
-            const lines = Array.from({ length: 10_001 }, (_, index) => `const value${index} = ${index};`).join('\n');
+            const lines = Array.from({ length: 5_001 }, (_, index) => `const value${index} = ${index};`).join('\n');
             await fs.writeFile(path.join(project, 'large.ts'), `${lines}\n`);
 
             const result = context.reindexByChange(project);
             await expect(result).rejects.toMatchObject({
                 name: 'IncrementalIndexTooLargeError',
-                effectiveLines: 10_001,
-                threshold: 10_000,
+                effectiveLines: 5_001,
+                threshold: 5_000,
                 changedFiles: 1,
             });
             await expect(context.reindexByChange(project)).rejects.toBeInstanceOf(IncrementalIndexTooLargeError);
@@ -360,7 +360,7 @@ describe('Context ignore pattern isolation', () => {
     it('does not stop automatic change indexing for a small edit in an existing large file', async () => {
         const project = path.join(tempRoot, 'project-large-existing-small-edit');
         await fs.mkdir(project);
-        const initialLines = Array.from({ length: 10_001 }, (_, index) => `const value${index} = ${index};`);
+            const initialLines = Array.from({ length: 5_001 }, (_, index) => `const value${index} = ${index};`);
         await fs.writeFile(path.join(project, 'large.ts'), `${initialLines.join('\n')}\n`);
 
         const vectorDatabase = createVectorDatabase();
@@ -406,13 +406,13 @@ describe('Context ignore pattern isolation', () => {
             await context.reindexByChange(project);
             vectorDatabase.insert.mockClear();
 
-            const lines = Array.from({ length: 10_002 }, (_, index) => `const value${index} = ${index};`).join('\n');
+            const lines = Array.from({ length: 5_002 }, (_, index) => `const value${index} = ${index};`).join('\n');
             await fs.writeFile(path.join(project, 'growing.ts'), `${lines}\n`);
 
             await expect(context.reindexByChange(project)).rejects.toMatchObject({
                 name: 'IncrementalIndexTooLargeError',
-                effectiveLines: 10_001,
-                threshold: 10_000,
+                effectiveLines: 5_001,
+                threshold: 5_000,
                 changedFiles: 1,
             });
             expect(vectorDatabase.insert).not.toHaveBeenCalled();
@@ -438,7 +438,7 @@ describe('Context ignore pattern isolation', () => {
             await context.reindexByChange(project);
             vectorDatabase.insert.mockClear();
 
-            const lines = Array.from({ length: 10_001 }, (_, index) => `const value${index} = ${index};`).join('\n');
+            const lines = Array.from({ length: 5_001 }, (_, index) => `const value${index} = ${index};`).join('\n');
             await fs.writeFile(path.join(project, 'large.ts'), `${lines}\n`);
             await fs.writeFile(path.join(project, '.hceignore'), 'large.ts\n');
 
@@ -468,7 +468,7 @@ describe('Context ignore pattern isolation', () => {
         try {
             await context.reindexByChange(project);
 
-            const lines = Array.from({ length: 10_001 }, (_, index) => `const value${index} = ${index};`).join('\n');
+            const lines = Array.from({ length: 5_001 }, (_, index) => `const value${index} = ${index};`).join('\n');
             await fs.writeFile(path.join(project, 'large.ts'), `${lines}\n`);
 
             await expect(context.reindexByChange(project)).rejects.toBeInstanceOf(IncrementalIndexTooLargeError);

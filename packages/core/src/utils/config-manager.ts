@@ -483,7 +483,7 @@ const CONFIG_COMPLETION_ENTRIES: ConfigCompletionEntry[] = [
     {
         key: 'automaticIncrementalEffectiveLineLimit',
         description: 'Effective-line growth limit before automatic incremental sync pauses for manual review.',
-        example: '10000'
+        example: '5000'
     },
     {
         key: 'autoIndexing',

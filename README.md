@@ -1,11 +1,29 @@
 # Hitmux Context Engine
 
-Hitmux Context Engine is an MCP server and TypeScript indexing engine for semantic code search. It indexes a repository into Milvus-compatible vector storage, including Local Milvus, self-hosted remote Milvus, or Zilliz Cloud, then lets Claude Code and other MCP clients search code with natural language queries.
+Semantic code search for MCP clients.
+
+Hitmux Context Engine indexes a repository into Milvus-compatible vector storage, then gives Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and other MCP clients focused tools for finding code by behavior, symbol, workflow, or file role.
 
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 [![npm - core](https://img.shields.io/npm/v/@hitmux/hitmux-context-engine-core?label=%40hitmux%2Fhitmux-context-engine-core&logo=npm)](https://www.npmjs.com/package/@hitmux/hitmux-context-engine-core)
 [![npm - mcp](https://img.shields.io/npm/v/@hitmux/hitmux-context-engine-mcp?label=%40hitmux%2Fhitmux-context-engine-mcp&logo=npm)](https://www.npmjs.com/package/@hitmux/hitmux-context-engine-mcp)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Use it when an AI coding agent needs more than text grep:
+
+- Search indexed code with natural-language or identifier-heavy queries.
+- Prefer implementation files while still surfacing related tests, docs, config, and exports when useful.
+- Trace definitions, references, imports, exports, and related tests for a symbol.
+- Keep project configuration in simple `config.conf` files instead of per-client environment setup.
+
+Typical MCP workflow:
+
+```text
+Index this codebase
+Check the indexing status
+Find the handler that validates MCP tool arguments
+Trace the symbol createMcpConfig
+```
 
 ## Quick Start
 
@@ -43,6 +61,7 @@ Then open your MCP client in a repository and ask:
 Index this codebase
 Check the indexing status
 Find functions that handle user authentication
+Trace the symbol AuthService
 ```
 
 More client examples, including Cursor, Windsurf, Claude Desktop, Gemini CLI, Qwen Code, VS Code MCP, Cline, and Roo Code, are in [docs/quick-start.md](docs/quick-start.md).
@@ -107,8 +126,8 @@ Before opening a PR, describe the changed package, behavior, validation commands
 
 ## Documentation
 
-- [docs/quick-start.md](docs/quick-start.md): MCP client setup.
 - [docs/configuration.md](docs/configuration.md): canonical conf configuration reference.
+- [docs/quick-start.md](docs/quick-start.md): MCP client setup.
 - [docs/troubleshooting.md](docs/troubleshooting.md): common setup and runtime problems.
 - [docs/package-reference.md](docs/package-reference.md): MCP tools and core package usage.
 

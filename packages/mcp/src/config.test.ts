@@ -89,7 +89,7 @@ test("ensureGlobalConfigFile creates a commented default global config", async (
         assert.match(content, /milvusAddress = localhost:19530/);
         assert.match(content, /embeddingUseSystemProxy = false/);
         assert.match(content, /databaseUseSystemProxy = false/);
-        assert.match(content, /# automaticIncrementalEffectiveLineLimit = 10000/);
+        assert.match(content, /# automaticIncrementalEffectiveLineLimit = 5000/);
 
         const secondResult = configManager.ensureGlobalConfigFile();
         assert.deepEqual(secondResult, {
@@ -130,7 +130,7 @@ test("ensureGlobalConfigFile completes existing config using the default templat
         assert.match(content, /# Default embedding provider\.\nembeddingProvider = OpenAI # keep inline comment\nembeddingModel = qwen\/qwen3-embedding-4b/);
         assert.match(content, /# Local Milvus default\. Change this for remote Milvus or Zilliz Cloud\.\n# milvusAddress = remote\.example:19530\n# milvusToken = your-milvus-or-zilliz-token/);
         assert.match(content, /embeddingModel = qwen\/qwen3-embedding-4b\n# openrouterApiKey = sk-or-your-openrouter-api-key/);
-        assert.match(content, /# Effective-line growth limit before automatic incremental sync pauses for manual review\.\n# automaticIncrementalEffectiveLineLimit = 10000/);
+        assert.match(content, /# Effective-line growth limit before automatic incremental sync pauses for manual review\.\n# automaticIncrementalEffectiveLineLimit = 5000/);
         assert.match(content, /# Additional file extensions to index; repeat the field for multiple values\.\ncustomExtensions = \.vue\ncustomExtensions = \.svelte/);
         assert.match(content, /# Existing fields not present in the current default template\.\nfutureOption = keep-me/);
 
