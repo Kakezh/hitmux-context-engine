@@ -460,7 +460,7 @@ Common config.conf fields:
  to disable polling while keeping trigger-based sync.
  syncIntervalMs
  Background sync interval in milliseconds when enabled
- (default: 300000).
+ (default: 120000).
 
  Sync Trigger Watcher:
  triggerWatcher
@@ -481,7 +481,7 @@ Example config.conf:
  embeddingUseSystemProxy = false
  databaseUseSystemProxy = false
  backgroundSync = true
- syncIntervalMs = 60000
+ syncIntervalMs = 120000
 
 Start:
  npx @hitmux/hce@latest

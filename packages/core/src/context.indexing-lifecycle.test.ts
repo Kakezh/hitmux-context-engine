@@ -47,6 +47,22 @@ class OneChunkSplitter implements Splitter {
     setChunkOverlap(): void { }
 }
 
+class SlowTrackingEmbedding extends TestEmbedding {
+    public activeRequests = 0;
+    public maxActiveRequests = 0;
+
+    async embedBatch(texts: string[]): Promise<EmbeddingVector[]> {
+        this.activeRequests += 1;
+        this.maxActiveRequests = Math.max(this.maxActiveRequests, this.activeRequests);
+        try {
+            await sleep(25);
+            return texts.map(() => ({ vector: [1, 0, 0], dimension: 3 }));
+        } finally {
+            this.activeRequests -= 1;
+        }
+    }
+}
+
 const createVectorDatabase = (): jest.Mocked<VectorDatabase> => ({
     createCollection: jest.fn().mockResolvedValue(undefined),
     createHybridCollection: jest.fn().mockResolvedValue(undefined),
@@ -163,10 +179,75 @@ describe('Context indexing lifecycle', () => {
         expect(progress.some(update => update.percentage === 95)).toBe(true);
         expect(progress.at(-1)?.percentage).toBe(100);
     });
+
+    it('limits concurrent embedding batches across parallel index operations', async () => {
+        const firstProject = await createProjectWithFiles(tempRoot, 'project-a', 3);
+        const secondProject = await createProjectWithFiles(tempRoot, 'project-b', 3);
+        await writeProjectConfig(firstProject, {
+            embeddingBatchSize: 1,
+            embeddingConcurrency: 2
+        });
+        await writeProjectConfig(secondProject, {
+            embeddingBatchSize: 1,
+            embeddingConcurrency: 2
+        });
+        const embedding = new SlowTrackingEmbedding();
+        const context = new Context({
+            hybridMode: false,
+            embedding,
+            vectorDatabase: createVectorDatabase(),
+            codeSplitter: new OneChunkSplitter(),
+        });
+
+        const processFileList = (context as unknown as {
+            processFileList: (
+                filePaths: string[],
+                codebasePath: string,
+                onFileProcessed?: (filePath: string, fileIndex: number, totalFiles: number) => void,
+                splitter?: Splitter
+            ) => Promise<unknown>;
+        }).processFileList.bind(context);
+        const firstFiles = await listProjectFiles(firstProject);
+        const secondFiles = await listProjectFiles(secondProject);
+
+        await Promise.all([
+            processFileList(firstFiles, firstProject, undefined, new OneChunkSplitter()),
+            processFileList(secondFiles, secondProject, undefined, new OneChunkSplitter())
+        ]);
+
+        expect(embedding.maxActiveRequests).toBeGreaterThan(1);
+        expect(embedding.maxActiveRequests).toBeLessThanOrEqual(2);
+    });
 });
+
+async function createProjectWithFiles(root: string, name: string, count: number): Promise<string> {
+    const project = path.join(root, name);
+    await fs.mkdir(project, { recursive: true });
+    for (let i = 0; i < count; i++) {
+        await fs.writeFile(path.join(project, `file-${i}.ts`), `export const value${i} = ${i};`);
+    }
+    return project;
+}
+
+async function listProjectFiles(project: string): Promise<string[]> {
+    const entries = await fs.readdir(project, { withFileTypes: true });
+    return entries
+        .filter(entry => entry.isFile())
+        .map(entry => path.join(project, entry.name));
+}
+
+async function sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function writeConfig(homeDir: string, config: Record<string, unknown>): Promise<void> {
     const configDir = path.join(homeDir, '.hitmux-context-engine');
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(path.join(configDir, 'config.conf'), stringifyConf(config), 'utf-8');
+}
+
+async function writeProjectConfig(projectRoot: string, config: Record<string, unknown>): Promise<void> {
+    const configDir = path.join(projectRoot, '.hitmux-context-engine');
     await fs.mkdir(configDir, { recursive: true });
     await fs.writeFile(path.join(configDir, 'config.conf'), stringifyConf(config), 'utf-8');
 }

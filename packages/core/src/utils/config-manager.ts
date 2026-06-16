@@ -353,7 +353,7 @@ const CONFIG_COMPLETION_ENTRIES: ConfigCompletionEntry[] = [
     {
         key: 'embeddingConcurrency',
         description: 'Embedding request concurrency for index operations.',
-        example: '1'
+        example: '4'
     },
     {
         key: 'openaiApiKey',
@@ -508,7 +508,7 @@ const CONFIG_COMPLETION_ENTRIES: ConfigCompletionEntry[] = [
     {
         key: 'syncIntervalMs',
         description: 'Background sync interval in milliseconds.',
-        example: '300000'
+        example: '120000'
     },
     {
         key: 'syncLockStaleMs',

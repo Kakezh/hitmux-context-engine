@@ -185,6 +185,86 @@ test("background sync exposes per-codebase progress while running", async () => 
     });
 });
 
+test("background sync processes multiple codebases concurrently", async () => {
+    await withTempHome(async (tempRoot) => {
+        await writeProjectConfig(tempRoot, { embeddingConcurrency: 4 });
+        const firstCodebasePath = path.join(tempRoot, "repo-a");
+        const secondCodebasePath = path.join(tempRoot, "repo-b");
+        await mkdir(firstCodebasePath, { recursive: true });
+        await mkdir(secondCodebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        for (const codebasePath of [firstCodebasePath, secondCodebasePath]) {
+            snapshotManager.setCodebaseIndexed(codebasePath, {
+                indexedFiles: 1,
+                totalChunks: 1,
+                status: "completed"
+            });
+        }
+        snapshotManager.saveCodebaseSnapshot();
+
+        let activeSyncs = 0;
+        let maxActiveSyncs = 0;
+        const context = {
+            reindexByChange: async () => {
+                activeSyncs += 1;
+                maxActiveSyncs = Math.max(maxActiveSyncs, activeSyncs);
+                await sleep(30);
+                activeSyncs -= 1;
+                return { added: 0, removed: 0, modified: 0 };
+            }
+        } as any;
+
+        const syncManager = new SyncManager(context, snapshotManager);
+
+        await syncManager.handleSyncIndex();
+
+        assert.equal(maxActiveSyncs, 2);
+    });
+});
+
+test("background sync limits codebase concurrency with embeddingConcurrency", async () => {
+    await withTempHome(async (tempRoot) => {
+        await writeProjectConfig(tempRoot, { embeddingConcurrency: 2 });
+        const codebasePaths = [
+            path.join(tempRoot, "repo-a"),
+            path.join(tempRoot, "repo-b"),
+            path.join(tempRoot, "repo-c")
+        ];
+        for (const codebasePath of codebasePaths) {
+            await mkdir(codebasePath, { recursive: true });
+        }
+
+        const snapshotManager = new SnapshotManager();
+        for (const codebasePath of codebasePaths) {
+            snapshotManager.setCodebaseIndexed(codebasePath, {
+                indexedFiles: 1,
+                totalChunks: 1,
+                status: "completed"
+            });
+        }
+        snapshotManager.saveCodebaseSnapshot();
+
+        let activeSyncs = 0;
+        let maxActiveSyncs = 0;
+        const context = {
+            reindexByChange: async () => {
+                activeSyncs += 1;
+                maxActiveSyncs = Math.max(maxActiveSyncs, activeSyncs);
+                await sleep(30);
+                activeSyncs -= 1;
+                return { added: 0, removed: 0, modified: 0 };
+            }
+        } as any;
+
+        const syncManager = new SyncManager(context, snapshotManager);
+
+        await syncManager.handleSyncIndex();
+
+        assert.equal(maxActiveSyncs, 2);
+    });
+});
+
 test("large automatic incremental sync keeps the old index and records a warning", async () => {
     await withTempHome(async (tempRoot) => {
         const codebasePath = path.join(tempRoot, "repo");

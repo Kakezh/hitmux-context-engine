@@ -1,5 +1,5 @@
 {
-    "name": "@hitmux/hce",
+    "name": "hce-mcp",
     "version": "0.1.21",
     "description": "Short package alias for the Hitmux Context Engine MCP server",
     "type": "module",
@@ -19,7 +19,7 @@
     "repository": {
         "type": "git",
         "url": "https://github.com/hitmux/hitmux-context-engine.git",
-        "directory": "packages/hce"
+        "directory": "packages/hce-unscoped"
     },
     "license": "MIT",
     "publishConfig": {

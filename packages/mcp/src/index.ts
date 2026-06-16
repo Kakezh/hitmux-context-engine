@@ -14,6 +14,9 @@ console.warn = (...args: any[]) => {
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
     ListToolsRequestSchema,
     CallToolRequestSchema,
@@ -40,6 +43,7 @@ import { runCliTestCommand } from "./cli-test.js";
 import { SnapshotManager } from "./snapshot.js";
 import { SyncManager } from "./sync.js";
 import { ToolHandlers } from "./handlers.js";
+import { UpdateChecker } from "./update-checker.js";
 
 applySystemProxyPolicy(false);
 
@@ -47,9 +51,24 @@ process.on("unhandledRejection", (reason) => {
     console.error("[MCP] Unhandled async error (kept server alive):", reason);
 });
 
+const MCP_PACKAGE_NAME = "@hitmux/hitmux-context-engine-mcp";
+
+function readCurrentPackageVersion(): string {
+    const packageJsonPath = join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "package.json",
+    );
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+        version?: string;
+    };
+    return packageJson.version ?? "0.0.0";
+}
+
 class ContextMcpServer {
     private server: Server;
     private snapshotManager: SnapshotManager;
+    private updateChecker: UpdateChecker;
     private runtime: {
         context: Context;
         syncManager: SyncManager;
@@ -77,6 +96,11 @@ class ContextMcpServer {
 
         this.snapshotManager = new SnapshotManager();
         this.snapshotManager.loadCodebaseSnapshot();
+        this.updateChecker = new UpdateChecker({
+            packageName: MCP_PACKAGE_NAME,
+            currentVersion: readCurrentPackageVersion(),
+        });
+        this.updateChecker.start();
 
         this.setupTools();
     }
@@ -99,6 +123,24 @@ class ContextMcpServer {
             "Error initializing Hitmux Context Engine runtime",
             error,
         );
+    }
+
+    private withUpdateNotice(result: any): any {
+        const notice = this.updateChecker.consumeNotice();
+        if (!notice || !Array.isArray(result?.content)) {
+            return result;
+        }
+
+        const firstTextContent = result.content.find(
+            (item: any) => item?.type === "text" && typeof item.text === "string",
+        );
+
+        if (!firstTextContent) {
+            return result;
+        }
+
+        firstTextContent.text = `${notice}\n\n${firstTextContent.text}`;
+        return result;
     }
 
     private getConfigReadError(): Error | null {
@@ -495,40 +537,52 @@ This tool is versatile and can be used before completing various tasks to retrie
                         runtime.backgroundSyncStarted = true;
                     }
                 } catch (error) {
-                    return this.formatRuntimeInitializationError(error);
+                    return this.withUpdateNotice(
+                        this.formatRuntimeInitializationError(error),
+                    );
                 }
 
                 try {
+                    let result: any;
                     switch (name) {
                         case "index_codebase":
-                            return await runtime.toolHandlers.handleIndexCodebase(
+                            result = await runtime.toolHandlers.handleIndexCodebase(
                                 args,
                             );
+                            return this.withUpdateNotice(result);
                         case "search_code":
-                            return await runtime.toolHandlers.handleSearchCode(
+                            result = await runtime.toolHandlers.handleSearchCode(
                                 args,
                             );
+                            return this.withUpdateNotice(result);
                         case "trace_symbol":
-                            return await runtime.toolHandlers.handleTraceSymbol(
+                            result = await runtime.toolHandlers.handleTraceSymbol(
                                 args,
                             );
+                            return this.withUpdateNotice(result);
                         case "clear_index":
-                            return await runtime.toolHandlers.handleClearIndex(
+                            result = await runtime.toolHandlers.handleClearIndex(
                                 args,
                             );
+                            return this.withUpdateNotice(result);
                         case "get_indexing_status":
-                            return await runtime.toolHandlers.handleGetIndexingStatus(
+                            result = await runtime.toolHandlers.handleGetIndexingStatus(
                                 args,
                             );
+                            return this.withUpdateNotice(result);
 
                         default:
-                            return this.formatToolError("Unknown tool", name);
+                            return this.withUpdateNotice(
+                                this.formatToolError("Unknown tool", name),
+                            );
                     }
                 } catch (error) {
                     console.error(`[MCP] Tool '${name}' failed:`, error);
-                    return this.formatToolError(
-                        `Error running tool '${name}'`,
-                        error,
+                    return this.withUpdateNotice(
+                        this.formatToolError(
+                            `Error running tool '${name}'`,
+                            error,
+                        ),
                     );
                 }
             },

@@ -336,6 +336,8 @@ export class Context {
     private searchTimeoutMs: number;
     private maxDepth?: number;
     private hybridMode?: boolean;
+    private activeIndexingBatchCount: number = 0;
+    private indexingBatchWaiters: Array<() => void> = [];
 
     constructor(config: ContextConfig = {}) {
         // Initialize services
@@ -2623,8 +2625,8 @@ export class Context {
         onFileProgress?: (progress: FileProcessingProgress) => void
     ): Promise<{ processedFiles: number; totalChunks: number; status: 'completed' | 'limit_reached' }> {
         const isHybrid = this.getIsHybrid();
-        const EMBEDDING_BATCH_SIZE = Math.max(1, Math.floor(configManager.getNumber('embeddingBatchSize') || 32));
-        const EMBEDDING_CONCURRENCY = Math.max(1, Math.floor(configManager.getNumber('embeddingConcurrency') || 1));
+        const EMBEDDING_BATCH_SIZE = Math.max(1, Math.floor(configManager.getNumber('embeddingBatchSize', codebasePath) || 32));
+        const EMBEDDING_CONCURRENCY = Math.max(1, Math.floor(configManager.getNumber('embeddingConcurrency', codebasePath) || 4));
         const CHUNK_LIMIT = 450000;
         console.log(`[Context] 🔧 Using embeddingBatchSize: ${EMBEDDING_BATCH_SIZE}`);
         console.log(`[Context] 🔧 Using embeddingConcurrency: ${EMBEDDING_CONCURRENCY}`);
@@ -2666,10 +2668,12 @@ export class Context {
 
         const enqueueChunkBuffer = async (buffer: Array<{ chunk: CodeChunk; codebasePath: string }>): Promise<void> => {
             const batch = buffer;
+            const releaseSlot = await this.acquireIndexingBatchSlot(EMBEDDING_CONCURRENCY);
             const task: Promise<BatchResult> = this.processChunkBuffer(batch)
                 .then(() => ({ ok: true as const }))
                 .catch((error) => ({ ok: false as const, error }))
                 .finally(() => {
+                    releaseSlot();
                     activeBatches.delete(task);
                 });
             activeBatches.add(task);
@@ -2780,6 +2784,26 @@ export class Context {
             processedFiles,
             totalChunks,
             status: limitReached ? 'limit_reached' : 'completed'
+        };
+    }
+
+    private async acquireIndexingBatchSlot(maxConcurrency: number): Promise<() => void> {
+        while (this.activeIndexingBatchCount >= maxConcurrency) {
+            await new Promise<void>((resolve) => {
+                this.indexingBatchWaiters.push(resolve);
+            });
+        }
+
+        this.activeIndexingBatchCount += 1;
+        let released = false;
+        return () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            this.activeIndexingBatchCount = Math.max(0, this.activeIndexingBatchCount - 1);
+            const nextWaiter = this.indexingBatchWaiters.shift();
+            nextWaiter?.();
         };
     }
 

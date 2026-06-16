@@ -276,7 +276,7 @@ autoIndexing = true
 interactiveIndexing = true
 backgroundSync = true
 automaticIncrementalEffectiveLineLimit = 5000
-syncIntervalMs = 300000
+syncIntervalMs = 120000
 syncLockStaleMs = 600000
 triggerWatcher = true
 ```
@@ -320,7 +320,7 @@ hybridMode = true
 
 searchTimeoutMs = 30000
 embeddingBatchSize = 32
-embeddingConcurrency = 1
+embeddingConcurrency = 4
 customExtensions = .vue
 customExtensions = .svelte
 customExtensions = .astro
@@ -332,7 +332,7 @@ autoIndexing = true
 interactiveIndexing = true
 backgroundSync = true
 automaticIncrementalEffectiveLineLimit = 5000
-syncIntervalMs = 300000
+syncIntervalMs = 120000
 syncLockStaleMs = 600000
 triggerWatcher = true
 

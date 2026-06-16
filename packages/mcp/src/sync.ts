@@ -17,7 +17,7 @@ import { queryCollectionStats } from "./collection-stats.js";
 import { acquireMcpWriterLock, type McpWriterLock } from "./sync-lock.js";
 
 const DEFAULT_INITIAL_SYNC_DELAY_MS = 5_000;
-const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_SYNC_INTERVAL_MS = 2 * 60 * 1000;
 const MIN_SYNC_INTERVAL_MS = 1_000;
 
 function isBackgroundSyncEnabled(): boolean {
@@ -43,6 +43,22 @@ function getBackgroundSyncIntervalMs(): number {
     }
 
     return Math.floor(intervalMs);
+}
+
+function getSyncConcurrency(): number {
+    const concurrency = configManager.getNumber("embeddingConcurrency");
+    if (concurrency === undefined) {
+        return 4;
+    }
+
+    if (!Number.isFinite(concurrency) || concurrency < 1) {
+        console.warn(
+            `[SYNC-DEBUG] Invalid config.embeddingConcurrency value '${concurrency}'. Falling back to 4.`,
+        );
+        return 4;
+    }
+
+    return Math.max(1, Math.floor(concurrency));
 }
 
 export interface CodebaseSyncStatus {
@@ -165,7 +181,6 @@ export class SyncManager {
         );
 
         try {
-            let totalStats = { added: 0, removed: 0, modified: 0 };
             for (let i = 0; i < indexedCodebases.length; i++) {
                 this.setCodebaseSyncStatus(indexedCodebases[i], {
                     phase: "Waiting for automatic sync...",
@@ -177,172 +192,25 @@ export class SyncManager {
                 });
             }
 
-            for (let i = 0; i < indexedCodebases.length; i++) {
-                const codebasePath = indexedCodebases[i];
-                const codebaseStartTime = Date.now();
-
-                console.log(
-                    `[SYNC-DEBUG] [${i + 1}/${indexedCodebases.length}] Starting sync for codebase: '${codebasePath}'`,
-                );
-
-                // Check if codebase path still exists
-                try {
-                    const pathExists = fs.existsSync(codebasePath);
-                    console.log(
-                        `[SYNC-DEBUG] Codebase path exists: ${pathExists}`,
-                    );
-
-                    if (!pathExists) {
-                        console.warn(
-                            `[SYNC-DEBUG] Codebase path '${codebasePath}' no longer exists. Skipping sync.`,
-                        );
-                        continue;
-                    }
-                } catch (pathError: any) {
-                    console.error(
-                        `[SYNC-DEBUG] Error checking codebase path '${codebasePath}':`,
-                        pathError,
-                    );
-                    continue;
-                }
-
-                try {
-                    console.log(
-                        `[SYNC-DEBUG] Calling context.reindexByChange() for '${codebasePath}'`,
-                    );
-                    this.setCodebaseSyncStatus(codebasePath, {
-                        phase: "Checking for file changes...",
-                        current: 0,
-                        total: 100,
-                        percentage: 0,
-                        startedAtMs: codebaseStartTime,
-                        updatedAtMs: Date.now(),
-                    });
-                    const codebaseInfo =
-                        this.snapshotManager.getCodebaseInfo(codebasePath);
-                    const requestSplitterType: RequestSplitterType =
-                        resolveRequestSplitterType(
-                            codebaseInfo?.requestSplitter,
-                        );
-                    const requestIgnorePatterns =
-                        codebaseInfo?.requestIgnorePatterns || [];
-                    const requestCustomExtensions =
-                        codebaseInfo?.requestCustomExtensions || [];
-                    const requestIgnoreFiles =
-                        codebaseInfo?.requestIgnoreFiles || [];
-                    const requestMaxDepth = codebaseInfo?.requestMaxDepth;
-                    const stats = await this.context.reindexByChange(
-                        codebasePath,
-                        (progress) =>
-                            this.updateCodebaseSyncProgress(
-                                codebasePath,
-                                codebaseStartTime,
-                                progress,
-                            ),
-                        requestIgnorePatterns,
-                        requestCustomExtensions,
-                        createRequestSplitter(requestSplitterType),
-                        requestIgnoreFiles,
-                        requestMaxDepth,
-                    );
-                    const codebaseElapsed = Date.now() - codebaseStartTime;
-
-                    console.log(
-                        `[SYNC-DEBUG] Reindex stats for '${codebasePath}':`,
-                        stats,
-                    );
-                    console.log(
-                        `[SYNC-DEBUG] Codebase sync completed in ${codebaseElapsed}ms`,
-                    );
-                    // Accumulate total stats
-                    totalStats.added += stats.added;
-                    totalStats.removed += stats.removed;
-                    totalStats.modified += stats.modified;
-
-                    if (
-                        stats.added > 0 ||
-                        stats.removed > 0 ||
-                        stats.modified > 0
-                    ) {
-                        const collectionStats = await queryCollectionStats(
-                            this.context,
-                            codebasePath,
-                            "SYNC-STATS",
-                        );
-                        if (collectionStats) {
-                            this.snapshotManager.setCodebaseIndexed(
-                                codebasePath,
-                                {
-                                    ...collectionStats,
-                                    status: "completed",
-                                },
-                            );
-                            this.snapshotManager.saveCodebaseSnapshot();
-                        } else {
-                            this.snapshotManager.clearCodebaseSyncWarning(
-                                codebasePath,
-                            );
-                            this.snapshotManager.saveCodebaseSnapshot();
-                        }
-                        console.log(
-                            `[SYNC] Sync complete for '${codebasePath}'. Added: ${stats.added}, Removed: ${stats.removed}, Modified: ${stats.modified} (${codebaseElapsed}ms)`,
-                        );
-                    } else {
-                        const previousInfo =
-                            this.snapshotManager.getCodebaseInfo(codebasePath);
-                        const hadSyncWarning =
-                            previousInfo?.status === "indexed" &&
-                            typeof previousInfo.syncWarning === "string";
-                        this.snapshotManager.clearCodebaseSyncWarning(
-                            codebasePath,
-                        );
-                        if (hadSyncWarning) {
-                            this.snapshotManager.saveCodebaseSnapshot();
-                        }
-                        console.log(
-                            `[SYNC] No changes detected for '${codebasePath}' (${codebaseElapsed}ms)`,
-                        );
-                    }
-                    this.syncStatuses.delete(codebasePath);
-                } catch (error: any) {
-                    const codebaseElapsed = Date.now() - codebaseStartTime;
-                    if (error instanceof IncrementalIndexTooLargeError) {
-                        const warning = `Automatic incremental indexing paused: detected ${error.effectiveLines} effective lines across ${error.changedFiles} added/modified file(s), exceeding the ${error.threshold} line limit. Check whether this is a large batch of files that should be added to .hceignore. If the files should be indexed, review the change set and run index_codebase with incremental=true from MCP.`;
-                        console.warn(`[SYNC] ${warning}`);
-                        this.snapshotManager.setCodebaseSyncWarning(
-                            codebasePath,
-                            warning,
-                        );
-                        this.snapshotManager.saveCodebaseSnapshot();
-                        this.syncStatuses.delete(codebasePath);
-                        continue;
-                    }
-
-                    console.error(
-                        `[SYNC-DEBUG] Error syncing codebase '${codebasePath}' after ${codebaseElapsed}ms:`,
-                        error,
-                    );
-                    console.error(`[SYNC-DEBUG] Error stack:`, error.stack);
-
-                    if (error.message.includes("Failed to query Milvus")) {
-                        // Collection maybe deleted manually, delete the snapshot file
-                        await FileSynchronizer.deleteSnapshot(codebasePath);
-                    }
-
-                    // Log additional error details
-                    if (error.code) {
-                        console.error(`[SYNC-DEBUG] Error code: ${error.code}`);
-                    }
-                    if (error.errno) {
-                        console.error(
-                            `[SYNC-DEBUG] Error errno: ${error.errno}`,
-                        );
-                    }
-
-                    // Continue with next codebase even if one fails
-                    this.syncStatuses.delete(codebasePath);
-                }
-            }
+            const syncConcurrency = Math.min(
+                getSyncConcurrency(),
+                indexedCodebases.length,
+            );
+            console.log(
+                `[SYNC-DEBUG] Running automatic sync with concurrency ${syncConcurrency}`,
+            );
+            const syncResults = await this.runCodebaseSyncsWithConcurrency(
+                indexedCodebases,
+                syncConcurrency,
+            );
+            const totalStats = syncResults.reduce(
+                (total, stats) => ({
+                    added: total.added + stats.added,
+                    removed: total.removed + stats.removed,
+                    modified: total.modified + stats.modified,
+                }),
+                { added: 0, removed: 0, modified: 0 },
+            );
 
             const totalElapsed = Date.now() - syncStartTime;
             console.log(
@@ -369,6 +237,172 @@ export class SyncManager {
             console.log(
                 `[SYNC-DEBUG] handleSyncIndex() finished at ${new Date().toISOString()}, total duration: ${totalElapsed}ms`,
             );
+        }
+    }
+
+    private async runCodebaseSyncsWithConcurrency(
+        indexedCodebases: string[],
+        concurrency: number,
+    ): Promise<Array<{ added: number; removed: number; modified: number }>> {
+        const results: Array<{ added: number; removed: number; modified: number }> =
+            new Array(indexedCodebases.length);
+        let nextIndex = 0;
+
+        const runWorker = async (): Promise<void> => {
+            while (nextIndex < indexedCodebases.length) {
+                const index = nextIndex;
+                nextIndex += 1;
+                results[index] = await this.syncCodebase(
+                    indexedCodebases[index],
+                    index,
+                    indexedCodebases.length,
+                );
+            }
+        };
+
+        await Promise.all(
+            Array.from({ length: concurrency }, () => runWorker()),
+        );
+        return results;
+    }
+
+    private async syncCodebase(
+        codebasePath: string,
+        index: number,
+        totalCodebases: number,
+    ): Promise<{ added: number; removed: number; modified: number }> {
+        const codebaseStartTime = Date.now();
+
+        console.log(
+            `[SYNC-DEBUG] [${index + 1}/${totalCodebases}] Starting sync for codebase: '${codebasePath}'`,
+        );
+
+        try {
+            const pathExists = fs.existsSync(codebasePath);
+            console.log(`[SYNC-DEBUG] Codebase path exists: ${pathExists}`);
+
+            if (!pathExists) {
+                console.warn(
+                    `[SYNC-DEBUG] Codebase path '${codebasePath}' no longer exists. Skipping sync.`,
+                );
+                this.syncStatuses.delete(codebasePath);
+                return { added: 0, removed: 0, modified: 0 };
+            }
+        } catch (pathError: any) {
+            console.error(
+                `[SYNC-DEBUG] Error checking codebase path '${codebasePath}':`,
+                pathError,
+            );
+            this.syncStatuses.delete(codebasePath);
+            return { added: 0, removed: 0, modified: 0 };
+        }
+
+        try {
+            console.log(
+                `[SYNC-DEBUG] Calling context.reindexByChange() for '${codebasePath}'`,
+            );
+            this.setCodebaseSyncStatus(codebasePath, {
+                phase: "Checking for file changes...",
+                current: 0,
+                total: 100,
+                percentage: 0,
+                startedAtMs: codebaseStartTime,
+                updatedAtMs: Date.now(),
+            });
+            const codebaseInfo = this.snapshotManager.getCodebaseInfo(codebasePath);
+            const requestSplitterType: RequestSplitterType =
+                resolveRequestSplitterType(codebaseInfo?.requestSplitter);
+            const requestIgnorePatterns = codebaseInfo?.requestIgnorePatterns || [];
+            const requestCustomExtensions =
+                codebaseInfo?.requestCustomExtensions || [];
+            const requestIgnoreFiles = codebaseInfo?.requestIgnoreFiles || [];
+            const requestMaxDepth = codebaseInfo?.requestMaxDepth;
+            const stats = await this.context.reindexByChange(
+                codebasePath,
+                (progress) =>
+                    this.updateCodebaseSyncProgress(
+                        codebasePath,
+                        codebaseStartTime,
+                        progress,
+                    ),
+                requestIgnorePatterns,
+                requestCustomExtensions,
+                createRequestSplitter(requestSplitterType),
+                requestIgnoreFiles,
+                requestMaxDepth,
+            );
+            const codebaseElapsed = Date.now() - codebaseStartTime;
+
+            console.log(`[SYNC-DEBUG] Reindex stats for '${codebasePath}':`, stats);
+            console.log(
+                `[SYNC-DEBUG] Codebase sync completed in ${codebaseElapsed}ms`,
+            );
+
+            if (stats.added > 0 || stats.removed > 0 || stats.modified > 0) {
+                const collectionStats = await queryCollectionStats(
+                    this.context,
+                    codebasePath,
+                    "SYNC-STATS",
+                );
+                if (collectionStats) {
+                    this.snapshotManager.setCodebaseIndexed(codebasePath, {
+                        ...collectionStats,
+                        status: "completed",
+                    });
+                    this.snapshotManager.saveCodebaseSnapshot();
+                } else {
+                    this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
+                    this.snapshotManager.saveCodebaseSnapshot();
+                }
+                console.log(
+                    `[SYNC] Sync complete for '${codebasePath}'. Added: ${stats.added}, Removed: ${stats.removed}, Modified: ${stats.modified} (${codebaseElapsed}ms)`,
+                );
+            } else {
+                const previousInfo =
+                    this.snapshotManager.getCodebaseInfo(codebasePath);
+                const hadSyncWarning =
+                    previousInfo?.status === "indexed" &&
+                    typeof previousInfo.syncWarning === "string";
+                this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
+                if (hadSyncWarning) {
+                    this.snapshotManager.saveCodebaseSnapshot();
+                }
+                console.log(
+                    `[SYNC] No changes detected for '${codebasePath}' (${codebaseElapsed}ms)`,
+                );
+            }
+
+            return stats;
+        } catch (error: any) {
+            const codebaseElapsed = Date.now() - codebaseStartTime;
+            if (error instanceof IncrementalIndexTooLargeError) {
+                const warning = `Automatic incremental indexing paused: detected ${error.effectiveLines} effective lines across ${error.changedFiles} added/modified file(s), exceeding the ${error.threshold} line limit. Check whether this is a large batch of files that should be added to .hceignore. If the files should be indexed, review the change set and run index_codebase with incremental=true from MCP.`;
+                console.warn(`[SYNC] ${warning}`);
+                this.snapshotManager.setCodebaseSyncWarning(codebasePath, warning);
+                this.snapshotManager.saveCodebaseSnapshot();
+                return { added: 0, removed: 0, modified: 0 };
+            }
+
+            console.error(
+                `[SYNC-DEBUG] Error syncing codebase '${codebasePath}' after ${codebaseElapsed}ms:`,
+                error,
+            );
+            console.error(`[SYNC-DEBUG] Error stack:`, error.stack);
+
+            if (error.message.includes("Failed to query Milvus")) {
+                await FileSynchronizer.deleteSnapshot(codebasePath);
+            }
+
+            if (error.code) {
+                console.error(`[SYNC-DEBUG] Error code: ${error.code}`);
+            }
+            if (error.errno) {
+                console.error(`[SYNC-DEBUG] Error errno: ${error.errno}`);
+            }
+
+            return { added: 0, removed: 0, modified: 0 };
+        } finally {
+            this.syncStatuses.delete(codebasePath);
         }
     }
 
