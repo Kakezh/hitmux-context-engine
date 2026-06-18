@@ -1,6 +1,6 @@
 {
     "name": "hitmux-context-engine",
-    "version": "0.1.23",
+    "version": "0.1.24",
     "description": "A powerful code indexing tool with multi-platform support",
     "private": true,
     "scripts": {
@@ -28,6 +28,7 @@
         "release:aliases": "pnpm release:hce && pnpm release:hce-mcp && pnpm release:hitmux-context-engine",
         "example:basic": "pnpm --filter hitmux-context-engine-basic-example start",
         "benchmark": "node scripts/build-benchmark.js",
+        "benchmark:indexing": "pnpm build:core && pnpm --dir packages/mcp exec tsx ../../benchmark/run-indexing-baseline.ts",
         "benchmark:search:cannonwar": "pnpm build:core && pnpm --dir packages/mcp exec tsx ../../evaluation/search-quality/run-cannonwar-search-quality.ts"
     },
     "devDependencies": {

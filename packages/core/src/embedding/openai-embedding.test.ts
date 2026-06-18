@@ -19,6 +19,27 @@ describe('OpenAIEmbedding', () => {
         (OpenAI as unknown as jest.Mock).mockClear();
     });
 
+    it('passes default headers to the OpenAI-compatible client', () => {
+        new OpenAIEmbedding({
+            apiKey: 'test-api-key',
+            model: 'text-embedding-3-small',
+            baseURL: 'https://provider.example/v1',
+            defaultHeaders: {
+                'HTTP-Referer': 'https://github.com/hitmux/hitmux-context-engine',
+                'X-OpenRouter-Title': 'Hitmux Context Engine',
+            },
+        });
+
+        expect(OpenAI).toHaveBeenCalledWith({
+            apiKey: 'test-api-key',
+            baseURL: 'https://provider.example/v1',
+            defaultHeaders: {
+                'HTTP-Referer': 'https://github.com/hitmux/hitmux-context-engine',
+                'X-OpenRouter-Title': 'Hitmux Context Engine',
+            },
+        });
+    });
+
     it('caches detected dimensions per baseURL and model', async () => {
         mockCreate
             .mockResolvedValueOnce({ data: [{ embedding: [1, 2, 3] }] })

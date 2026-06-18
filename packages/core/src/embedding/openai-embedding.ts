@@ -5,6 +5,7 @@ export interface OpenAIEmbeddingConfig {
     model: string;
     apiKey: string;
     baseURL?: string; // OpenAI supports custom baseURL
+    defaultHeaders?: Record<string, string>;
     retryMaxElapsedMs?: number;
 }
 
@@ -23,6 +24,7 @@ export class OpenAIEmbedding extends Embedding {
         this.client = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.baseURL,
+            defaultHeaders: config.defaultHeaders,
         });
     }
 

@@ -308,14 +308,13 @@ const DEFAULT_GLOBAL_CONFIG_HEADER = `# Hitmux Context Engine global configurati
 `;
 
 const DEFAULT_GLOBAL_CONFIG_ACTIVE_CONTENT = `
-# Server metadata.
-# mcpServerName = Hitmux Context Engine MCP Server
-# mcpServerVersion = 1.0.0
+# =============================================================================
+# Basic configuration: set these fields first to make the service usable.
+# =============================================================================
 
 # Default embedding provider.
 embeddingProvider = OpenRouter
 embeddingModel = qwen/qwen3-embedding-4b
-fileProcessingConcurrency = 2
 # openrouterApiKey = sk-or-your-openrouter-api-key
 
 # Local Milvus default. Change this for remote Milvus or Zilliz Cloud.
@@ -325,6 +324,17 @@ milvusAddress = localhost:19530
 # System proxy inheritance is disabled by default.
 embeddingUseSystemProxy = false
 databaseUseSystemProxy = false
+
+# =============================================================================
+# Advanced configuration: tune these only when you need custom behavior.
+# =============================================================================
+
+# Server metadata.
+# mcpServerName = Hitmux Context Engine MCP Server
+# mcpServerVersion = 1.0.0
+
+# Index worker defaults.
+fileProcessingConcurrency = 2
 
 # Background sync defaults.
 backgroundSync = true

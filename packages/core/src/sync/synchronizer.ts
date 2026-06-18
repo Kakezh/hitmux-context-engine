@@ -15,6 +15,15 @@ interface FileSnapshotState {
     effectiveLines?: number;
 }
 
+interface FileHashScanMetrics {
+    directoriesRead: number;
+    filesVisited: number;
+    filesHashed: number;
+    hashesReused: number;
+    statErrors: number;
+    hashErrors: number;
+}
+
 export interface FileSynchronizerOptions {
     maxDepth?: number;
     maxSnapshotBytes?: number;
@@ -53,6 +62,8 @@ export class FileSynchronizer {
         fileStates: Map<string, FileSnapshotState>;
         merkleDAG: MerkleDAG;
     } | null = null;
+    private currentScanMetrics: FileHashScanMetrics | null = null;
+    private lastScanMetrics: FileHashScanMetrics | null = null;
     private static readonly DEFAULT_MAX_SNAPSHOT_BYTES = 128 * 1024 * 1024;
 
     constructor(rootDir: string, ignorePatterns: string[] = [], supportedExtensions: string[] = [], options: FileSynchronizerOptions = {}) {
@@ -93,6 +104,28 @@ export class FileSynchronizer {
     }
 
     private async generateFileHashes(dir: string, depth: number = 0): Promise<Map<string, string>> {
+        if (depth === 0) {
+            const metrics: FileHashScanMetrics = {
+                directoriesRead: 0,
+                filesVisited: 0,
+                filesHashed: 0,
+                hashesReused: 0,
+                statErrors: 0,
+                hashErrors: 0
+            };
+            this.currentScanMetrics = metrics;
+            try {
+                return await this.generateFileHashesInDirectory(dir, depth);
+            } finally {
+                this.lastScanMetrics = metrics;
+                this.currentScanMetrics = null;
+            }
+        }
+
+        return this.generateFileHashesInDirectory(dir, depth);
+    }
+
+    private async generateFileHashesInDirectory(dir: string, depth: number = 0): Promise<Map<string, string>> {
         const fileHashes = new Map<string, string>();
         const fileStates = depth === 0 ? new Map<string, FileSnapshotState>() : this.pendingFileStates;
         if (depth === 0) {
@@ -106,6 +139,7 @@ export class FileSynchronizer {
             console.warn(`[Synchronizer] Cannot read directory ${dir}: ${error.message}`);
             return fileHashes;
         }
+        this.currentScanMetrics!.directoriesRead += 1;
 
         for (const entry of entries) {
             const fullPath = path.join(dir, entry.name);
@@ -122,6 +156,7 @@ export class FileSynchronizer {
                 stat = await fs.stat(fullPath);
             } catch (error: any) {
                 console.warn(`[Synchronizer] Cannot stat ${fullPath}: ${error.message}`);
+                this.currentScanMetrics!.statErrors += 1;
                 continue;
             }
 
@@ -142,6 +177,7 @@ export class FileSynchronizer {
                     if (this.supportedExtensions.length > 0 && !this.supportedExtensions.includes(ext)) {
                         continue;
                     }
+                    this.currentScanMetrics!.filesVisited += 1;
                     try {
                         const previousState = this.fileStates.get(relativePath);
                         const canReuseHash = previousState &&
@@ -151,10 +187,16 @@ export class FileSynchronizer {
                         const fileState = canReuseHash
                             ? previousState
                             : await this.readFileSnapshotState(fullPath, stat);
+                        if (canReuseHash) {
+                            this.currentScanMetrics!.hashesReused += 1;
+                        } else {
+                            this.currentScanMetrics!.filesHashed += 1;
+                        }
                         fileHashes.set(relativePath, fileState.hash);
                         fileStates.set(relativePath, fileState);
                     } catch (error: any) {
                         console.warn(`[Synchronizer] Cannot hash file ${fullPath}: ${error.message}`);
+                        this.currentScanMetrics!.hashErrors += 1;
                         continue;
                     }
                 }
@@ -243,13 +285,27 @@ export class FileSynchronizer {
     public async checkForChanges(options: CheckForChangesOptions = {}): Promise<{ added: string[], removed: string[], modified: string[] }> {
         console.log('[Synchronizer] Checking for file changes...');
 
+        const scanStartMs = Date.now();
         const newFileHashes = await this.generateFileHashes(this.rootDir);
+        const scanElapsedMs = Date.now() - scanStartMs;
+        const metrics = this.lastScanMetrics;
+        if (metrics) {
+            console.log(
+                `[Synchronizer] Full scan/hash completed in ${scanElapsedMs}ms. ` +
+                `Directories: ${metrics.directoriesRead}, files: ${metrics.filesVisited}, ` +
+                `hashed: ${metrics.filesHashed}, reused: ${metrics.hashesReused}, ` +
+                `statErrors: ${metrics.statErrors}, hashErrors: ${metrics.hashErrors}.`
+            );
+        }
+        const compareStartMs = Date.now();
         const newFileStates = this.pendingFileStates;
         const newMerkleDAG = this.buildMerkleDAG(newFileHashes);
         const metadataChanged = !this.fileStatesEqual(this.fileStates, newFileStates);
 
         // Compare the DAGs
         const changes = MerkleDAG.compare(this.merkleDAG, newMerkleDAG);
+        const compareElapsedMs = Date.now() - compareStartMs;
+        console.log(`[Synchronizer] Full scan comparison completed in ${compareElapsedMs}ms.`);
 
         // If there are any changes in the DAG, do a file-level comparison
         if (changes.added.length > 0 || changes.removed.length > 0) {

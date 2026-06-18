@@ -267,6 +267,21 @@ describe('Context lexical search supplement', () => {
         expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
     });
 
+    it.each(['basename', 'fileExtension'])('keeps filename-like search usable when structured filename field %s is missing', async (field) => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.query.mockRejectedValueOnce(new Error(`field ${field} not found in schema`));
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'spawnSystem.ts', 5, 0.3);
+
+        expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
+        expect(results[0].relativePath).toBe('server/src/rooms/GameRoom.ts');
+    });
+
     it('queries broad lexical candidates when exact rows do not contain enough owner-quality matches', async () => {
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.query
@@ -361,6 +376,108 @@ describe('Context lexical search supplement', () => {
         expect(results[0].relativePath).toBe('src/workers/bridge/renderWorkerBridge.ts');
         expect(results[0].scoreReasons).toEqual(expect.arrayContaining(['exact_filename']));
         expect(results[1].relativePath).toBe('server/src/rooms/GameRoom.ts');
+    });
+
+    it('infers filename-like queries and avoids broad lexical like filters for direct core searches', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.query.mockResolvedValueOnce([createRow({
+            id: 'spawn-system',
+            content: 'export function spawnSystem() {}',
+            relativePath: 'src/systems/spawnSystem.ts',
+            startLine: 1,
+            endLine: 5,
+            metadata: {
+                language: 'typescript',
+                fileName: 'spawnSystem.ts',
+                basename: 'spawnSystem',
+            },
+        })]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        await context.semanticSearch('/repo', 'spawnSystem.ts', 5, 0.3);
+
+        expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
+        const filter = vectorDatabase.query.mock.calls[0][1];
+        expect(filter).toBe('(basename == "spawnSystem" and fileExtension == ".ts")');
+        expect(filter).not.toContain(' like ');
+        expect(filter).not.toContain('content like');
+        expect(filter).not.toContain('relativePath like');
+    });
+
+    it('uses structured exact lexical query for basename filename-like searches', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.query.mockResolvedValueOnce([createRow({
+            id: 'spawn-system',
+            content: 'export function spawnSystem() {}',
+            relativePath: 'src/systems/spawnSystem.ts',
+            startLine: 1,
+            endLine: 5,
+            metadata: {
+                language: 'typescript',
+                fileName: 'spawnSystem.ts',
+                basename: 'spawnSystem',
+            },
+        })]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        await context.semanticSearch('/repo', 'spawnSystem.ts', 5, 0.3, undefined, {
+            filenameLikeQuery: {
+                normalizedPath: 'spawnSystem.ts',
+                basename: 'spawnSystem.ts',
+                isPathLike: false,
+            },
+        });
+
+        expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
+        const filter = vectorDatabase.query.mock.calls[0][1];
+        expect(filter).toBe('(basename == "spawnSystem" and fileExtension == ".ts")');
+        expect(filter).not.toContain(' like ');
+        expect(filter).not.toContain('content like');
+        expect(filter).not.toContain('relativePath like');
+    });
+
+    it('uses structured exact lexical query for path-like filename searches', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.query.mockResolvedValueOnce([createRow({
+            id: 'spawn-system',
+            content: 'export function spawnSystem() {}',
+            relativePath: 'src/systems/spawnSystem.ts',
+            startLine: 1,
+            endLine: 5,
+            metadata: {
+                language: 'typescript',
+                fileName: 'spawnSystem.ts',
+                basename: 'spawnSystem',
+            },
+        })]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        await context.semanticSearch('/repo', 'src/systems/spawnSystem.ts', 5, 0.3, undefined, {
+            filenameLikeQuery: {
+                normalizedPath: 'src/systems/spawnSystem.ts',
+                basename: 'spawnSystem.ts',
+                isPathLike: true,
+            },
+        });
+
+        expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
+        const filter = vectorDatabase.query.mock.calls[0][1];
+        expect(filter).toBe('(relativePath == "src/systems/spawnSystem.ts")');
+        expect(filter).not.toContain(' like ');
+        expect(filter).not.toContain('content like');
+        expect(filter).not.toContain('relativePath like');
     });
 
     it('recalls path fragments like router/relay-router.go as strong anchors', async () => {

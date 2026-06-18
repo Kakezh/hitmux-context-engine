@@ -16,6 +16,16 @@ const {
     withSystemProxyPolicy,
 } = corePackage;
 
+const HITMUX_CLIENT_HEADERS = {
+    "X-Hitmux-Client": "Hitmux Context Engine",
+} as const;
+
+const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
+    ...HITMUX_CLIENT_HEADERS,
+    "HTTP-Referer": "https://github.com/hitmux/hitmux-context-engine",
+    "X-OpenRouter-Title": "Hitmux Context Engine",
+} as const;
+
 export interface EmbeddingInstanceOptions {
     openAiRetryMaxElapsedMs?: number;
 }
@@ -91,6 +101,7 @@ export function createEmbeddingInstance(
                 embedding = new OpenAIEmbedding({
                     apiKey: config.openaiApiKey,
                     model: config.embeddingModel,
+                    defaultHeaders: HITMUX_CLIENT_HEADERS,
                     ...(config.openaiBaseUrl && {
                         baseURL: config.openaiBaseUrl,
                     }),
@@ -168,6 +179,7 @@ export function createEmbeddingInstance(
                     apiKey: config.openrouterApiKey,
                     model: config.embeddingModel,
                     baseURL: "https://openrouter.ai/api/v1",
+                    defaultHeaders: OPENROUTER_APP_ATTRIBUTION_HEADERS,
                     ...(options.openAiRetryMaxElapsedMs !== undefined && {
                         retryMaxElapsedMs: options.openAiRetryMaxElapsedMs,
                     }),

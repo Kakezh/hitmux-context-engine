@@ -137,6 +137,15 @@ export interface CodebaseSyncStatus {
     updatedAtMs: number;
 }
 
+export type SearchConsistencyMode = "low_latency" | "strong";
+
+export interface CodebaseSyncStats {
+    added: number;
+    removed: number;
+    modified: number;
+    warning?: string;
+}
+
 export class SyncManager {
     private context: Context;
     private snapshotManager: SnapshotManager;
@@ -151,8 +160,10 @@ export class SyncManager {
     private projectChangeTracker: ProjectChangeTracker | null = null;
     private lastFullScanMs: Map<string, number> = new Map();
     private projectWatcherSyncTimers: Map<string, NodeJS.Timeout> = new Map();
+    private projectWatcherFullScanTimers: Map<string, NodeJS.Timeout> = new Map();
     private projectWatcherSyncActive: Set<string> = new Set();
     private projectWatcherSyncQueued: Set<string> = new Set();
+    private projectWatcherFullScanQueued: Set<string> = new Set();
 
     constructor(context: Context, snapshotManager: SnapshotManager) {
         this.context = context;
@@ -188,9 +199,12 @@ export class SyncManager {
 
     public async syncCodebaseForSearch(
         codebasePath: string,
-    ): Promise<{ added: number; removed: number; modified: number }> {
+        options: { consistencyMode?: SearchConsistencyMode } = {},
+    ): Promise<CodebaseSyncStats> {
         return this.syncCodebase(codebasePath, 0, 1, {
+            consistencyMode: options.consistencyMode ?? "strong",
             throwOnIncrementalTooLarge: true,
+            throwOnSyncError: true,
         });
     }
 
@@ -322,6 +336,7 @@ export class SyncManager {
             this.isSyncing = false;
             this.syncStatuses.clear();
             this.releaseGlobalSyncLock();
+            this.drainQueuedProjectWatcherSyncs();
             const totalElapsed = Date.now() - syncStartTime;
             console.log(
                 `[SYNC-DEBUG] handleSyncIndex() finished at ${new Date().toISOString()}, total duration: ${totalElapsed}ms`,
@@ -332,9 +347,8 @@ export class SyncManager {
     private async runCodebaseSyncsWithConcurrency(
         indexedCodebases: string[],
         concurrency: number,
-    ): Promise<Array<{ added: number; removed: number; modified: number }>> {
-        const results: Array<{ added: number; removed: number; modified: number }> =
-            new Array(indexedCodebases.length);
+    ): Promise<CodebaseSyncStats[]> {
+        const results: CodebaseSyncStats[] = new Array(indexedCodebases.length);
         let nextIndex = 0;
 
         const runWorker = async (): Promise<void> => {
@@ -359,8 +373,13 @@ export class SyncManager {
         codebasePath: string,
         index: number,
         totalCodebases: number,
-        options: { throwOnIncrementalTooLarge?: boolean } = {},
-    ): Promise<{ added: number; removed: number; modified: number }> {
+        options: {
+            consistencyMode?: SearchConsistencyMode;
+            throwOnIncrementalTooLarge?: boolean;
+            throwOnSyncError?: boolean;
+            forceFullScan?: boolean;
+        } = {},
+    ): Promise<CodebaseSyncStats> {
         const codebaseStartTime = Date.now();
 
         console.log(
@@ -421,6 +440,8 @@ export class SyncManager {
                 createRequestSplitter(requestSplitterType),
                 requestIgnoreFiles,
                 requestMaxDepth,
+                options.consistencyMode ?? "strong",
+                options.forceFullScan === true,
             );
             const codebaseElapsed = Date.now() - codebaseStartTime;
 
@@ -449,14 +470,16 @@ export class SyncManager {
                     `[SYNC] Sync complete for '${codebasePath}'. Added: ${stats.added}, Removed: ${stats.removed}, Modified: ${stats.modified} (${codebaseElapsed}ms)`,
                 );
             } else {
-                const previousInfo =
-                    this.snapshotManager.getCodebaseInfo(codebasePath);
-                const hadSyncWarning =
-                    previousInfo?.status === "indexed" &&
-                    typeof previousInfo.syncWarning === "string";
-                this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
-                if (hadSyncWarning) {
-                    this.snapshotManager.saveCodebaseSnapshot();
+                if (!stats.warning) {
+                    const previousInfo =
+                        this.snapshotManager.getCodebaseInfo(codebasePath);
+                    const hadSyncWarning =
+                        previousInfo?.status === "indexed" &&
+                        typeof previousInfo.syncWarning === "string";
+                    this.snapshotManager.clearCodebaseSyncWarning(codebasePath);
+                    if (hadSyncWarning) {
+                        this.snapshotManager.saveCodebaseSnapshot();
+                    }
                 }
                 console.log(
                     `[SYNC] No changes detected for '${codebasePath}' (${codebaseElapsed}ms)`,
@@ -494,6 +517,10 @@ export class SyncManager {
                 console.error(`[SYNC-DEBUG] Error errno: ${error.errno}`);
             }
 
+            if (options.throwOnSyncError === true) {
+                throw error;
+            }
+
             return { added: 0, removed: 0, modified: 0 };
         } finally {
             this.syncStatuses.delete(codebasePath);
@@ -506,8 +533,14 @@ export class SyncManager {
             clearTimeout(timer);
             this.projectWatcherSyncTimers.delete(codebasePath);
         }
+        const fullScanTimer = this.projectWatcherFullScanTimers.get(codebasePath);
+        if (fullScanTimer) {
+            clearTimeout(fullScanTimer);
+            this.projectWatcherFullScanTimers.delete(codebasePath);
+        }
 
         this.projectWatcherSyncQueued.delete(codebasePath);
+        this.projectWatcherFullScanQueued.delete(codebasePath);
         this.projectWatcherSyncActive.delete(codebasePath);
         this.lastFullScanMs.delete(codebasePath);
         this.syncStatuses.delete(codebasePath);
@@ -652,8 +685,13 @@ export class SyncManager {
         for (const timer of this.projectWatcherSyncTimers.values()) {
             clearTimeout(timer);
         }
+        for (const timer of this.projectWatcherFullScanTimers.values()) {
+            clearTimeout(timer);
+        }
         this.projectWatcherSyncTimers.clear();
+        this.projectWatcherFullScanTimers.clear();
         this.projectWatcherSyncQueued.clear();
+        this.projectWatcherFullScanQueued.clear();
     }
 
     private scheduleProjectWatcherSync(codebasePath: string, delayMs: number = 0): void {
@@ -687,19 +725,65 @@ export class SyncManager {
         this.projectWatcherSyncTimers.set(codebasePath, timer);
     }
 
-    private async runProjectWatcherSync(codebasePath: string): Promise<void> {
+    private scheduleFullScanReconciliation(codebasePath: string, delayMs: number = 0): void {
+        if (!isAutoIndexingEnabled() || !isProjectWatcherEnabled()) {
+            return;
+        }
+
+        const info = this.snapshotManager.getCodebaseInfo(codebasePath);
+        if (!info || info.status !== "indexed") {
+            return;
+        }
+        if (!fs.existsSync(codebasePath)) {
+            return;
+        }
+
+        if (this.projectWatcherFullScanTimers.has(codebasePath)) {
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            this.projectWatcherFullScanTimers.delete(codebasePath);
+            void this.runProjectWatcherSync(codebasePath, { forceFullScan: true }).catch((error) => {
+                console.error(
+                    `[SYNC-DEBUG] Project watcher full-scan reconciliation failed for '${codebasePath}':`,
+                    error,
+                );
+            });
+        }, Math.max(0, Math.floor(delayMs)));
+        timer.unref?.();
+        this.projectWatcherFullScanTimers.set(codebasePath, timer);
+    }
+
+    private async runProjectWatcherSync(
+        codebasePath: string,
+        options: { forceFullScan?: boolean } = {},
+    ): Promise<void> {
+        const forceFullScan = options.forceFullScan === true;
         if (this.projectWatcherSyncActive.size > 0) {
-            this.projectWatcherSyncQueued.add(codebasePath);
+            if (forceFullScan) {
+                this.projectWatcherFullScanQueued.add(codebasePath);
+            } else {
+                this.projectWatcherSyncQueued.add(codebasePath);
+            }
             return;
         }
 
         if (this.isSyncing) {
-            this.scheduleProjectWatcherSync(codebasePath, Math.max(1, getProjectWatcherDebounceMs()));
+            if (forceFullScan) {
+                this.projectWatcherFullScanQueued.add(codebasePath);
+            } else {
+                this.projectWatcherSyncQueued.add(codebasePath);
+            }
             return;
         }
 
         if (!this.acquireGlobalSyncLock()) {
-            this.scheduleProjectWatcherSync(codebasePath, Math.max(1_000, getProjectWatcherDebounceMs()));
+            if (forceFullScan) {
+                this.scheduleFullScanReconciliation(codebasePath, Math.max(1_000, getProjectWatcherDebounceMs()));
+            } else {
+                this.scheduleProjectWatcherSync(codebasePath, Math.max(1_000, getProjectWatcherDebounceMs()));
+            }
             return;
         }
 
@@ -711,7 +795,10 @@ export class SyncManager {
                 return;
             }
 
-            await this.syncCodebase(codebasePath, 0, 1);
+            await this.syncCodebase(codebasePath, 0, 1, {
+                consistencyMode: "low_latency",
+                forceFullScan,
+            });
 
             if (!fs.existsSync(codebasePath)) {
                 return;
@@ -728,13 +815,26 @@ export class SyncManager {
             if (this.projectWatcherSyncQueued.delete(codebasePath)) {
                 this.scheduleProjectWatcherSync(codebasePath);
             }
-            if (this.projectWatcherSyncActive.size === 0) {
-                const queuedCodebases = Array.from(this.projectWatcherSyncQueued);
-                this.projectWatcherSyncQueued.clear();
-                for (const queuedCodebasePath of queuedCodebases) {
-                    this.scheduleProjectWatcherSync(queuedCodebasePath);
-                }
+            if (this.projectWatcherFullScanQueued.delete(codebasePath)) {
+                this.scheduleFullScanReconciliation(codebasePath, Math.max(1, getProjectWatcherDebounceMs()));
             }
+            if (this.projectWatcherSyncActive.size === 0) {
+                this.drainQueuedProjectWatcherSyncs();
+            }
+        }
+    }
+
+    private drainQueuedProjectWatcherSyncs(): void {
+        const queuedCodebases = Array.from(this.projectWatcherSyncQueued);
+        this.projectWatcherSyncQueued.clear();
+        for (const queuedCodebasePath of queuedCodebases) {
+            this.scheduleProjectWatcherSync(queuedCodebasePath);
+        }
+
+        const queuedFullScans = Array.from(this.projectWatcherFullScanQueued);
+        this.projectWatcherFullScanQueued.clear();
+        for (const queuedCodebasePath of queuedFullScans) {
+            this.scheduleFullScanReconciliation(queuedCodebasePath, Math.max(1, getProjectWatcherDebounceMs()));
         }
     }
 
@@ -756,13 +856,90 @@ export class SyncManager {
         requestSplitter: ReturnType<typeof createRequestSplitter>,
         requestIgnoreFiles: string[],
         requestMaxDepth: number | undefined,
-    ): Promise<{ added: number; removed: number; modified: number }> {
+        consistencyMode: SearchConsistencyMode,
+        forceFullScan: boolean,
+    ): Promise<CodebaseSyncStats> {
         const fallbackIntervalMs = getProjectWatcherFallbackScanIntervalMs();
         const lastFullScanMs = this.lastFullScanMs.get(codebasePath);
         const fullScanDue =
             state === null ||
             lastFullScanMs === undefined ||
             Date.now() - lastFullScanMs >= fallbackIntervalMs;
+        const fullScanDeferredWarning =
+            "Search used the current index without blocking on a due full-scan reconciliation. A background sync was queued; results may be stale for changes not captured by watcher events.";
+
+        if (forceFullScan) {
+            progressCallback({ phase: "Running background full-scan reconciliation", current: 0, total: 100, percentage: 0 });
+            console.log(
+                `[SYNC-DEBUG] Running background full-scan reconciliation for '${codebasePath}'.`,
+            );
+            const startedAt = Date.now();
+            const stats = await this.context.reindexByChange(
+                codebasePath,
+                progressCallback,
+                requestIgnorePatterns,
+                requestCustomExtensions,
+                requestSplitter,
+                requestIgnoreFiles,
+                requestMaxDepth,
+            );
+            const elapsedMs = Date.now() - startedAt;
+            this.lastFullScanMs.set(codebasePath, Date.now());
+            this.projectChangeTracker?.markClean(codebasePath, state?.version);
+            console.log(
+                `[SYNC-DEBUG] Background full-scan reconciliation completed for '${codebasePath}' in ${elapsedMs}ms. Added: ${stats.added}, Removed: ${stats.removed}, Modified: ${stats.modified}`,
+            );
+            return stats;
+        }
+
+        if (consistencyMode === "low_latency") {
+            if (state?.kind === "clean") {
+                progressCallback({ phase: "No watcher changes detected", current: 100, total: 100, percentage: 100 });
+                if (fullScanDue) {
+                    this.scheduleFullScanReconciliation(codebasePath, Math.max(1, getProjectWatcherDebounceMs()));
+                    return { added: 0, removed: 0, modified: 0, warning: fullScanDeferredWarning };
+                }
+                return { added: 0, removed: 0, modified: 0 };
+            }
+
+            if (
+                state?.kind === "dirty" &&
+                state.paths.length > 0 &&
+                typeof this.context.reindexChangedPaths === "function"
+            ) {
+                console.log(
+                    `[SYNC-DEBUG] Calling context.reindexChangedPaths() for '${codebasePath}' with ${state.paths.length} dirty path(s)`,
+                );
+                const stats = await this.context.reindexChangedPaths(
+                    codebasePath,
+                    state.paths,
+                    progressCallback,
+                    requestIgnorePatterns,
+                    requestCustomExtensions,
+                    requestSplitter,
+                    requestIgnoreFiles,
+                    requestMaxDepth,
+                );
+                this.projectChangeTracker?.markPathsClean(codebasePath, state.paths, state.version);
+                if (fullScanDue) {
+                    this.scheduleFullScanReconciliation(codebasePath, Math.max(1, getProjectWatcherDebounceMs()));
+                    return { ...stats, warning: fullScanDeferredWarning };
+                }
+                return stats;
+            }
+
+            let warning: string;
+            if (state?.kind === "unknown") {
+                warning = `Search used the current index because watcher state is unknown (${state.reason}). A background sync was queued; results may be stale.`;
+            } else if (state?.kind === "dirty") {
+                warning = "Search used the current index because targeted dirty-path sync is unavailable. A background sync was queued; results may be stale.";
+            } else {
+                warning = "Search used the current index without a pre-search consistency scan because watcher state is unavailable. A background sync was queued; results may be stale.";
+            }
+            this.scheduleFullScanReconciliation(codebasePath, Math.max(1, getProjectWatcherDebounceMs()));
+            progressCallback({ phase: "Using current index for low-latency search", current: 100, total: 100, percentage: 100 });
+            return { added: 0, removed: 0, modified: 0, warning };
+        }
 
         if (state?.kind === "clean" && !fullScanDue) {
             progressCallback({ phase: "No watcher changes detected", current: 100, total: 100, percentage: 100 });
@@ -806,6 +983,8 @@ export class SyncManager {
             );
         }
 
+        progressCallback({ phase: "Running full change scan", current: 0, total: 100, percentage: 0 });
+        const startedAt = Date.now();
         const stats = await this.context.reindexByChange(
             codebasePath,
             progressCallback,
@@ -815,8 +994,12 @@ export class SyncManager {
             requestIgnoreFiles,
             requestMaxDepth,
         );
+        const elapsedMs = Date.now() - startedAt;
         this.lastFullScanMs.set(codebasePath, Date.now());
         this.projectChangeTracker?.markClean(codebasePath, state?.version);
+        console.log(
+            `[SYNC-DEBUG] Full change scan completed for '${codebasePath}' in ${elapsedMs}ms. Added: ${stats.added}, Removed: ${stats.removed}, Modified: ${stats.modified}`,
+        );
         return stats;
     }
 

@@ -83,8 +83,11 @@ test("ensureGlobalConfigFile creates a commented default global config", async (
         assert.match(result.path, /\.hitmux-context-engine[/\\]config\.conf$/);
         assert.match(content, /# Hitmux Context Engine global configuration\./);
         assert.match(content, /# Project config at \.\/\.hitmux-context-engine\/config\.conf overrides matching fields\./);
+        assert.match(content, /# Basic configuration: set these fields first to make the service usable\./);
+        assert.match(content, /# Advanced configuration: tune these only when you need custom behavior\./);
         assert.match(content, /embeddingProvider = OpenRouter/);
         assert.match(content, /embeddingModel = qwen\/qwen3-embedding-4b/);
+        assert.match(content, /fileProcessingConcurrency = 2/);
         assert.doesNotMatch(content, /\nembeddingBatchSize = /);
         assert.doesNotMatch(content, /\nembeddingConcurrency = /);
         assert.match(content, /# embeddingBatchSize = 32/);
@@ -137,9 +140,11 @@ test("ensureGlobalConfigFile completes existing config using the default templat
         assert.ok(!result.appendedKeys.includes("customExtensions"));
         assert.doesNotMatch(content, /# Missing optional fields added as comments\./);
         assert.match(content, /# Hitmux Context Engine global configuration\./);
-        assert.match(content, /# Default embedding provider\.\nembeddingProvider = OpenAI # keep inline comment\nembeddingModel = qwen\/qwen3-embedding-4b\nfileProcessingConcurrency = 2/);
+        assert.match(content, /# Basic configuration: set these fields first to make the service usable\./);
+        assert.match(content, /# Advanced configuration: tune these only when you need custom behavior\./);
+        assert.match(content, /# Default embedding provider\.\nembeddingProvider = OpenAI # keep inline comment\nembeddingModel = qwen\/qwen3-embedding-4b\n# openrouterApiKey = sk-or-your-openrouter-api-key/);
         assert.match(content, /# Local Milvus default\. Change this for remote Milvus or Zilliz Cloud\.\n# milvusAddress = remote\.example:19530\n# milvusToken = your-milvus-or-zilliz-token/);
-        assert.match(content, /embeddingModel = qwen\/qwen3-embedding-4b\nfileProcessingConcurrency = 2\n# openrouterApiKey = sk-or-your-openrouter-api-key/);
+        assert.match(content, /# Index worker defaults\.\nfileProcessingConcurrency = 2/);
         assert.match(content, /# Embedding batch size for index operations\.\n# embeddingBatchSize = 32/);
         assert.match(content, /# Embedding request concurrency for index operations\.\n# embeddingConcurrency = 4/);
         assert.match(content, /# Effective-line growth limit before automatic incremental sync pauses for manual review\.\n# automaticIncrementalEffectiveLineLimit = 5000/);

@@ -411,10 +411,17 @@ This tool is versatile and can be used before completing various tasks to retrie
                                         "Optional: attach compact trace_symbol evidence for a small number of top implementation or entry results. Defaults to false.",
                                     default: false,
                                 },
+                                consistency: {
+                                    type: "string",
+                                    enum: ["low_latency", "strong"],
+                                    description:
+                                        "Optional search consistency mode. Defaults to low_latency, which uses watcher dirty paths when available and never blocks on full-scan reconciliation. Use strong only when the search must refresh the index before returning.",
+                                    default: "low_latency",
+                                },
                                 skipConsistencyCheck: {
                                     type: "boolean",
                                     description:
-                                        "Optional: skip the pre-search incremental sync and allow searching the current index even if it may be stale or an automatic sync is in progress. Defaults to false.",
+                                        "Deprecated compatibility option. When true, forces low_latency behavior. Prefer consistency='low_latency' or consistency='strong'.",
                                     default: false,
                                 },
                                 extensionFilter: {

@@ -301,6 +301,7 @@ describe('Context indexing lifecycle', () => {
                 flushLoadMs: 7,
             });
             for (const key of [
+                'totalIndexingMs',
                 'prepareCollectionMs',
                 'loadIgnorePatternsMs',
                 'scanFilesMs',
@@ -312,6 +313,8 @@ describe('Context indexing lifecycle', () => {
             ]) {
                 expect(typeof summary[key]).toBe('number');
             }
+            expect(typeof summary.filesPerSecond).toBe('number');
+            expect(typeof summary.chunksPerSecond).toBe('number');
         } finally {
             logSpy.mockRestore();
         }

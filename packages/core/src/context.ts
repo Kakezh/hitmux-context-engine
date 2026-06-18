@@ -23,6 +23,7 @@ import {
     SearchResultGroup,
     SearchScoreReason,
     SearchTargetRole,
+    SemanticSearchFilenameLikeQuery,
     SemanticSearchOptions,
     SemanticSearchResult,
     SymbolTraceOptions,
@@ -47,6 +48,8 @@ import { diversifySemanticSearchResultsByFile } from './search/result-diversify'
 import { deduplicateSemanticSearchResults, getNormalizedContentHash } from './search/result-dedupe';
 import { traceSymbolInFiles } from './search/symbol-trace';
 import { countEffectiveLinesInContent } from './utils/effective-lines';
+
+const FILE_TOKEN_PATTERN = /(?:^|[\s"'`(<{\[])([A-Za-z0-9_.@+~-]+(?:[\\/][A-Za-z0-9_.@+~-]+)*\.[A-Za-z0-9][A-Za-z0-9_+-]{0,15})(?=$|[\s"'`),}\]>:;!?])/g;
 
 /**
  * Thrown by indexCodebase / processFileList when an AbortSignal fires
@@ -93,6 +96,7 @@ interface FileProcessingProgress {
 }
 
 interface IndexingTimingMetrics {
+    totalIndexingMs: number;
     prepareCollectionMs: number;
     loadIgnorePatternsMs: number;
     scanFilesMs: number;
@@ -248,6 +252,12 @@ interface GroupedSearchResult extends SemanticSearchResult {
     ownerSignalPriority: number;
     structureScore: number;
     originalOrder: number;
+}
+
+interface NormalizedSemanticSearchOptions {
+    targetRole: SearchTargetRole;
+    includeRelated: boolean;
+    filenameLikeQuery?: SemanticSearchFilenameLikeQuery;
 }
 
 interface StructuralSearchTerms {
@@ -699,6 +709,7 @@ export class Context {
         console.log(`[Context] 🚀 Starting to index codebase with ${searchType}: ${codebasePath}`);
         const splitter = requestSplitter || this.codeSplitter;
         const timingMetrics = this.createIndexingTimingMetrics();
+        const indexingStartedAt = this.getMonotonicMs();
         const fileDiscoveryMetrics: CodeFileDiscoveryMetrics = {
             fileSizes: new Map<string, number>(),
             fileStatMs: 0
@@ -774,6 +785,7 @@ export class Context {
 
         if (codeFiles.length === 0) {
             progressCallback?.({ phase: 'No files to index', current: 100, total: 100, percentage: 100 });
+            timingMetrics.totalIndexingMs = this.getMonotonicMs() - indexingStartedAt;
             this.logIndexingTimingSummary(codebasePath, {
                 indexedFiles: 0,
                 totalChunks: 0,
@@ -832,6 +844,7 @@ export class Context {
         this.drainVectorDatabasePerformanceMetrics(timingMetrics);
 
         console.log(`[Context] ✅ Codebase indexing completed! Processed ${result.processedFiles} files in total, generated ${result.totalChunks} code chunks`);
+        timingMetrics.totalIndexingMs = this.getMonotonicMs() - indexingStartedAt;
         this.logIndexingTimingSummary(codebasePath, {
             indexedFiles: result.processedFiles,
             totalChunks: result.totalChunks,
@@ -1121,7 +1134,7 @@ export class Context {
     ): Promise<SemanticSearchResult[]> {
         const outputLimit = this.normalizeSearchOutputLimit(topK);
         const candidateLimit = this.getSearchCandidateLimit(outputLimit);
-        const searchOptions = this.normalizeSemanticSearchOptions(options);
+        const searchOptions = this.normalizeSemanticSearchOptions(query, options);
         const isHybrid = this.getIsHybrid();
         const searchType = isHybrid === true ? 'hybrid search' : 'semantic search';
         console.log(`[Context] 🔍 Executing ${searchType}: "${query}" in ${codebasePath}`);
@@ -1255,11 +1268,98 @@ export class Context {
         );
     }
 
-    private normalizeSemanticSearchOptions(options: SemanticSearchOptions): Required<SemanticSearchOptions> {
+    private normalizeSemanticSearchOptions(query: string, options: SemanticSearchOptions): NormalizedSemanticSearchOptions {
+        const explicitFilenameLikeQuery = this.isSemanticSearchFilenameLikeQuery(options.filenameLikeQuery)
+            ? options.filenameLikeQuery
+            : undefined;
+        const inferredFilenameLikeQuery = explicitFilenameLikeQuery
+            ? undefined
+            : this.extractFilenameLikeQuery(query);
+
         return {
             targetRole: this.isSearchTargetRole(options.targetRole) ? options.targetRole : 'implementation',
-            includeRelated: options.includeRelated !== false
+            includeRelated: options.includeRelated !== false,
+            ...(explicitFilenameLikeQuery ?? inferredFilenameLikeQuery
+                ? { filenameLikeQuery: explicitFilenameLikeQuery ?? inferredFilenameLikeQuery }
+                : {})
         };
+    }
+
+    private extractFilenameLikeQuery(query: string): SemanticSearchFilenameLikeQuery | undefined {
+        const matches: SemanticSearchFilenameLikeQuery[] = [];
+        let match: RegExpExecArray | null;
+
+        FILE_TOKEN_PATTERN.lastIndex = 0;
+        while ((match = FILE_TOKEN_PATTERN.exec(query)) !== null) {
+            const raw = match[1];
+            if (!raw) {
+                continue;
+            }
+
+            const normalizedPath = this.normalizeQueryPath(raw);
+            if (!this.isLikelyFileToken(normalizedPath)) {
+                continue;
+            }
+
+            const candidate: SemanticSearchFilenameLikeQuery = {
+                normalizedPath,
+                basename: path.posix.basename(normalizedPath),
+                isPathLike: normalizedPath.includes('/')
+            };
+
+            if (!matches.some(existing => existing.normalizedPath === candidate.normalizedPath)) {
+                matches.push(candidate);
+            }
+        }
+
+        if (matches.length !== 1) {
+            return undefined;
+        }
+
+        return this.isStandaloneFilenameLikeQuery(query, matches[0].normalizedPath) ? matches[0] : undefined;
+    }
+
+    private normalizeQueryPath(value: string): string {
+        return value
+            .trim()
+            .replace(/\\/g, '/')
+            .replace(/^\.\/+/, '')
+            .replace(/\/+/g, '/');
+    }
+
+    private isLikelyFileToken(normalizedPath: string): boolean {
+        const basename = path.posix.basename(normalizedPath);
+        if (basename.length === 0 || basename === '.' || basename === '..') {
+            return false;
+        }
+
+        if (/^\.[A-Za-z0-9_-]+$/.test(basename)) {
+            return true;
+        }
+
+        const extension = path.posix.extname(basename);
+        return extension.length >= 2 && extension.length <= 17 && /[A-Za-z0-9]/.test(extension.slice(1));
+    }
+
+    private isStandaloneFilenameLikeQuery(query: string, normalizedPath: string): boolean {
+        const trimmedQuery = query
+            .trim()
+            .replace(/^[\s"'`(<{\[]+/, '')
+            .replace(/[\s"'`),}\]>:;!?]+$/, '');
+        return this.normalizeQueryPath(trimmedQuery) === normalizedPath;
+    }
+
+    private isSemanticSearchFilenameLikeQuery(value: unknown): value is SemanticSearchFilenameLikeQuery {
+        if (!value || typeof value !== 'object') {
+            return false;
+        }
+
+        const candidate = value as Partial<SemanticSearchFilenameLikeQuery>;
+        return typeof candidate.normalizedPath === 'string'
+            && candidate.normalizedPath.length > 0
+            && typeof candidate.basename === 'string'
+            && candidate.basename.length > 0
+            && typeof candidate.isPathLike === 'boolean';
     }
 
     private isSearchTargetRole(value: unknown): value is SearchTargetRole {
@@ -1289,7 +1389,7 @@ export class Context {
 
     private applySearchResultGrouping(
         results: SemanticSearchResult[],
-        options: Required<SemanticSearchOptions>,
+        options: NormalizedSemanticSearchOptions,
         query: string,
         filterExpr: string | undefined,
         outputLimit: number
@@ -1740,7 +1840,7 @@ export class Context {
         outputLimit: number,
         filterExpr: string | undefined,
         vectorResults: SemanticSearchResult[],
-        options: Required<SemanticSearchOptions>
+        options: NormalizedSemanticSearchOptions
     ): Promise<SemanticSearchResult[]> {
         const terms = this.extractLexicalSearchTerms(query);
         if (terms.recallTerms.length === 0) {
@@ -1753,7 +1853,9 @@ export class Context {
         let exactCandidates: RankedLexicalCandidate[] = [];
         try {
             const lexicalLimits = this.getLexicalCandidateLimits(candidateLimit);
-            const exactFilter = this.buildExactCandidateFilter(terms, filterExpr);
+            const exactFilter = options.filenameLikeQuery
+                ? this.buildFilenameLikeExactCandidateFilter(options.filenameLikeQuery, filterExpr)
+                : this.buildExactCandidateFilter(terms, filterExpr);
             exactRows = await this.vectorDatabase.query(
                 collectionName,
                 exactFilter,
@@ -1761,7 +1863,7 @@ export class Context {
                 lexicalLimits.exact
             );
             exactCandidates = this.rankLexicalRows(exactRows, terms, roleIntent);
-            if (this.shouldQueryBroadLexicalCandidates(exactCandidates, outputLimit, lexicalLimits.exact)) {
+            if (!options.filenameLikeQuery && this.shouldQueryBroadLexicalCandidates(exactCandidates, outputLimit, lexicalLimits.exact)) {
                 const lexicalFilter = this.buildLexicalFilter(terms, filterExpr);
                 broadRows = await this.vectorDatabase.query(
                     collectionName,
@@ -1771,6 +1873,11 @@ export class Context {
                 );
             }
         } catch (error) {
+            if (this.isMissingStructuredFieldError(error) && options.filenameLikeQuery) {
+                console.warn(`[Context] Filename-like lexical supplement unavailable for '${collectionName}' because structured filename fields are missing.`);
+                return vectorResults;
+            }
+
             throw this.isMissingStructuredFieldError(error)
                 ? this.createCollectionSchemaMismatchError(collectionName, 'Milvus rejected one or more structured lexical filter fields.')
                 : error;
@@ -1848,6 +1955,23 @@ export class Context {
                 lexicalMetadata: _lexicalMetadata,
                 ...result
             }) => result);
+    }
+
+    private buildFilenameLikeExactCandidateFilter(query: SemanticSearchFilenameLikeQuery, filterExpr?: string): string {
+        const filenameFilter = query.isPathLike
+            ? `relativePath == "${this.escapeFilterString(query.normalizedPath)}"`
+            : this.buildBasenameExactFilter(query.basename);
+        if (filterExpr && filterExpr.trim().length > 0) {
+            return `(${filterExpr}) and (${filenameFilter})`;
+        }
+
+        return `(${filenameFilter})`;
+    }
+
+    private buildBasenameExactFilter(fileName: string): string {
+        const extension = path.posix.extname(fileName);
+        const basename = path.posix.basename(fileName, extension);
+        return `basename == "${this.escapeFilterString(basename)}" and fileExtension == "${this.escapeFilterString(extension)}"`;
     }
 
     private getLexicalCandidateLimits(topK: number): { exact: number; broad: number } {
@@ -2018,7 +2142,13 @@ export class Context {
 
     private isMissingStructuredFieldError(error: unknown): boolean {
         const message = error instanceof Error ? error.message : String(error);
-        return STRUCTURED_METADATA_FIELDS.some(field => message.includes(field))
+        const lowerMessage = message.toLowerCase();
+        const lexicalFilterFields = [
+            ...STRUCTURED_METADATA_FIELDS,
+            'fileExtension',
+            'relativePath',
+        ];
+        return lexicalFilterFields.some(field => lowerMessage.includes(field.toLowerCase()))
             && /field|schema|output|not.*exist|not.*found|cannot.*find|undefined/i.test(message);
     }
 
@@ -2814,6 +2944,7 @@ export class Context {
 
     private createIndexingTimingMetrics(): IndexingTimingMetrics {
         return {
+            totalIndexingMs: 0,
             prepareCollectionMs: 0,
             loadIgnorePatternsMs: 0,
             scanFilesMs: 0,
@@ -2940,10 +3071,13 @@ export class Context {
         const roundedMetrics = Object.fromEntries(
             Object.entries(metrics).map(([key, value]) => [key, Math.round(value)])
         );
+        const totalIndexingSeconds = Math.max(metrics.totalIndexingMs / 1000, 0.001);
         console.log('[Context] ⏱️ Indexing timing summary:', {
             codebasePath,
             ...summary,
-            ...roundedMetrics
+            ...roundedMetrics,
+            filesPerSecond: Number((summary.indexedFiles / totalIndexingSeconds).toFixed(2)),
+            chunksPerSecond: Number((summary.totalChunks / totalIndexingSeconds).toFixed(2))
         });
     }
 
