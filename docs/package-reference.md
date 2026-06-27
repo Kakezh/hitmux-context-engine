@@ -1,5 +1,7 @@
 # Package Reference
 
+Language: English | [中文](package-reference.zh-CN.md) | [Español](package-reference.es.md) | [Français](package-reference.fr.md) | [Deutsch](package-reference.de.md) | [日本語](package-reference.ja.md) | [한국어](package-reference.ko.md)
+
 ## MCP Packages
 
 Packages:
@@ -27,6 +29,28 @@ The full-name alias `@hitmux/hitmux-context-engine`, the original MCP package `@
 
 Configure product options in `~/.hitmux-context-engine/config.conf` or `./.hitmux-context-engine/config.conf`. See [configuration.md](configuration.md).
 
+### CLI Commands
+
+Plain `hce` with no arguments starts the MCP stdio server. Use arguments for shell commands:
+
+| Command | Purpose |
+| --- | --- |
+| `hce --help` | Show CLI usage. |
+| `hce --version` | Print the MCP package version. |
+| `hce init` | Create or complete `~/.hitmux-context-engine/config.conf` without overwriting existing values. |
+| `hce config path` | Show global and project config paths and whether they exist. |
+| `hce doctor [--no-connectivity]` | Check Node version, config parsing, key runtime settings, and optionally embedding/vector database connectivity. |
+| `hce test [embedding\|vectordb]` | Run connectivity checks. |
+| `hce status [path] [--refresh]` | Print indexing status for a path, defaulting to the current directory. |
+| `hce search <query> [path] [--limit n] [--target-role role]` | Search an indexed path from the shell. `role` is `implementation`, `test`, `docs`, `config`, or `all`. |
+| `hce clear <path>` | Clear index data for one path. |
+| `hce repair <path>` | Repair a legacy or missing remote index manifest. |
+| `hce list [collection-name\|repo-path]` | List collections or show details for one collection/path. |
+| `hce rm <collection-name\|repo-path> [...]` | Delete one or more collections by collection name or repo path. |
+| `hce index [collection-name\|repo-path]` | Sync or create an index for the current directory, a path, or a matching collection. Recommended first command for a new repository. |
+| `hce index --force [collection-name\|repo-path ...]` | Force rebuild the current directory, one target, or multiple target repo indexes. |
+| `hce index --all --force` | Force rebuild all known repo indexes. `hce index --all` is rejected intentionally. |
+
 ### MCP Tools
 
 `index_codebase`
@@ -46,7 +70,7 @@ Searches an indexed codebase with a focused code-search query.
 
 - `path`: absolute codebase path.
 - `query`: focused query using likely identifiers, filenames, path words, domain terms, and scope hints.
-- `limit`: optional max number of returned results. Leave empty for the bounded default.
+- `limit`: max number of returned results. Defaults to `10`; use a different value only when the caller explicitly needs more or fewer results.
 - `targetRole`: optional explicit search target: `implementation`, `test`, `docs`, `config`, or `all`. Defaults to `implementation`.
 - `includeRelated`: optional boolean. Defaults to `true`; set `false` to return only the primary role group.
 - `includeTraceEvidence`: optional boolean. Defaults to `false`; set `true` to attach compact symbol relationship evidence for a small number of top implementation or entry results.

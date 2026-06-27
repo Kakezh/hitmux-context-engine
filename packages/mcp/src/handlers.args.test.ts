@@ -482,7 +482,7 @@ test("search_code uses a bounded default when limit is omitted", async () => {
         });
 
         assert.equal(result.isError, undefined);
-        assert.equal(requestedTopK, 20);
+        assert.equal(requestedTopK, 10);
         assert.match(result.content[0].text, /Found 1 results/);
     });
 });
@@ -961,7 +961,7 @@ test("search_code falls back when configured searchTopK or searchThreshold are i
         });
 
         assert.equal(result.isError, undefined);
-        assert.equal(requestedTopK, 20);
+        assert.equal(requestedTopK, 10);
         assert.equal(requestedThreshold, 0.3);
     });
 });

@@ -1,5 +1,7 @@
 # Configuration
 
+Language: English | [中文](configuration.zh-CN.md) | [Español](configuration.es.md) | [Français](configuration.fr.md) | [Deutsch](configuration.de.md) | [日本語](configuration.ja.md) | [한국어](configuration.ko.md)
+
 Hitmux Context Engine reads runtime options from conf files:
 
 1. `~/.hitmux-context-engine/config.conf`
@@ -47,6 +49,8 @@ embeddingProvider = OpenRouter
 embeddingModel = qwen/qwen3-embedding-4b
 openrouterApiKey = sk-or-your-openrouter-api-key
 ```
+
+With the default OpenRouter `qwen/qwen3-embedding-4b` setup, indexing uses `embeddingBatchSize = 64` and `embeddingConcurrency = 2` unless you override them. As a rough reference, a repository with about 50,000 effective lines usually takes about 2-3 minutes to index, depending on network latency, provider load, file mix, and vector database performance.
 
 Database fields are configured separately in [Vector Database](#vector-database).
 

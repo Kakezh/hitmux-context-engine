@@ -83,6 +83,7 @@ export class IncrementalIndexTooLargeError extends Error {
 
 interface ReindexByChangeOptions {
     skipEffectiveLineLimit?: boolean;
+    abortSignal?: AbortSignal;
 }
 
 interface IncrementalChanges {
@@ -134,6 +135,7 @@ interface ProcessFileListOptions {
 
 interface ChunkBatchInsertOptions extends InsertOptions {
     ensureCollectionBeforeInsert?: (dimension: number) => Promise<void>;
+    abortSignal?: AbortSignal;
 }
 
 interface IndexingRunCache {
@@ -1014,6 +1016,7 @@ export class Context {
         progressCallback?: (progress: { phase: string; current: number; total: number; percentage: number }) => void,
         options: ReindexByChangeOptions = {}
     ): Promise<{ added: number, removed: number, modified: number }> {
+        this.throwIfIndexAborted(options.abortSignal);
         const { added, removed, modified } = changes;
         const totalChanges = added.length + removed.length + modified.length;
 
@@ -1046,6 +1049,7 @@ export class Context {
         }
 
         const fileWeights = await this.getFileProcessingWeights(filesToIndex);
+        this.throwIfIndexAborted(options.abortSignal);
         const deletionWeight = 1;
         const deletionWeightTotal = (removed.length + modified.length) * deletionWeight;
         const totalWorkWeight = Math.max(deletionWeightTotal + fileWeights.totalWeight, 1);
@@ -1083,11 +1087,13 @@ export class Context {
         };
 
         for (const file of removed) {
+            this.throwIfIndexAborted(options.abortSignal);
             await this.deleteFileChunks(collectionName, file);
             completeDeletionWork(`Removed ${file}`);
         }
 
         for (const file of modified) {
+            this.throwIfIndexAborted(options.abortSignal);
             await this.deleteFileChunks(collectionName, file);
             completeDeletionWork(`Deleted old chunks for ${file}`);
         }
@@ -1100,7 +1106,7 @@ export class Context {
                     completeIndexFile(filePath, `Indexed ${filePath} (${fileIndex}/${totalFiles})`);
                 },
                 splitter,
-                undefined,
+                options.abortSignal,
                 (progress) => {
                     updateIndexFileProgress(
                         progress.filePath,
@@ -1115,7 +1121,9 @@ export class Context {
             );
         }
 
+        this.throwIfIndexAborted(options.abortSignal);
         await this.finalizeVectorCollectionWrites(codebasePath);
+        this.throwIfIndexAborted(options.abortSignal);
         await currentSynchronizer.commitPendingChanges();
         await this.refreshRemoteIndexManifestFromSynchronizer(
             codebasePath,
@@ -3779,7 +3787,8 @@ export class Context {
             const releaseSlot = await this.acquireIndexingBatchSlot(EMBEDDING_CONCURRENCY);
             const task: Promise<BatchResult> = this.processChunkBuffer(batch, timingMetrics, {
                 deferFlushLoad: options.deferVectorFlushLoad === true,
-                ensureCollectionBeforeInsert: options.ensureCollectionBeforeInsert
+                ensureCollectionBeforeInsert: options.ensureCollectionBeforeInsert,
+                abortSignal: signal
             }, runCache)
                 .then(() => ({ ok: true as const }))
                 .catch((error) => ({ ok: false as const, error }))
@@ -4197,6 +4206,8 @@ export class Context {
         runCache?: IndexingRunCache
     ): Promise<void> {
         const isHybrid = this.getIsHybrid();
+        const searchType = isHybrid === true ? 'hybrid' : 'regular';
+        const collectionName = this.getCollectionName(codebasePath);
 
         // Generate embedding vectors
         const chunkContents = chunks.map(chunk => chunk.content);
@@ -4204,7 +4215,10 @@ export class Context {
         let embeddings: EmbeddingVector[];
         const embeddingStartedAt = this.getMonotonicMs();
         try {
+            this.throwIfIndexAborted(insertOptions.abortSignal);
+            console.log(`[Context] 🧠 Embedding ${chunks.length} ${searchType} chunk(s) for ${codebasePath}`);
             embeddings = await this.embedChunkContents(chunkContents, runCache);
+            console.log(`[Context] ✅ Embedded ${chunks.length} chunk(s) in ${Math.round(this.getMonotonicMs() - embeddingStartedAt)}ms`);
         } catch (error) {
             if (timingMetrics) {
                 this.drainVectorDatabasePerformanceMetrics(timingMetrics);
@@ -4222,9 +4236,11 @@ export class Context {
                 timingMetrics.embeddingMs += this.getMonotonicMs() - embeddingStartedAt;
             }
         }
+        this.throwIfIndexAborted(insertOptions.abortSignal);
         this.validateEmbeddings(embeddings, chunks.length);
-        const { ensureCollectionBeforeInsert, ...vectorInsertOptions } = insertOptions;
+        const { ensureCollectionBeforeInsert, abortSignal: _abortSignal, ...vectorInsertOptions } = insertOptions;
         await ensureCollectionBeforeInsert?.(embeddings[0].vector.length);
+        this.throwIfIndexAborted(insertOptions.abortSignal);
 
         if (isHybrid === true) {
             // Create hybrid vector documents
@@ -4233,7 +4249,9 @@ export class Context {
             // Store to vector database
             const insertStartedAt = this.getMonotonicMs();
             try {
-                await this.vectorDatabase.insertHybrid(this.getCollectionName(codebasePath), documents, vectorInsertOptions);
+                console.log(`[Context] 📥 Inserting ${documents.length} hybrid document(s) into ${collectionName}`);
+                await this.vectorDatabase.insertHybrid(collectionName, documents, vectorInsertOptions);
+                console.log(`[Context] ✅ Inserted ${documents.length} hybrid document(s) in ${Math.round(this.getMonotonicMs() - insertStartedAt)}ms`);
             } finally {
                 if (timingMetrics) {
                     const elapsedMs = this.getMonotonicMs() - insertStartedAt;
@@ -4248,7 +4266,9 @@ export class Context {
             // Store to vector database
             const insertStartedAt = this.getMonotonicMs();
             try {
-                await this.vectorDatabase.insert(this.getCollectionName(codebasePath), documents, vectorInsertOptions);
+                console.log(`[Context] 📥 Inserting ${documents.length} regular document(s) into ${collectionName}`);
+                await this.vectorDatabase.insert(collectionName, documents, vectorInsertOptions);
+                console.log(`[Context] ✅ Inserted ${documents.length} regular document(s) in ${Math.round(this.getMonotonicMs() - insertStartedAt)}ms`);
             } finally {
                 if (timingMetrics) {
                     const elapsedMs = this.getMonotonicMs() - insertStartedAt;

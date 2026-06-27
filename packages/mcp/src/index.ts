@@ -1,22 +1,8 @@
 #!/usr/bin/env node
 
-// CRITICAL: Redirect console outputs to stderr IMMEDIATELY to avoid interfering with MCP JSON protocol
-// Only MCP protocol messages should go to stdout
-console.log = (...args: any[]) => {
-    process.stderr.write("[LOG] " + args.join(" ") + "\n");
-};
-
-console.warn = (...args: any[]) => {
-    process.stderr.write("[WARN] " + args.join(" ") + "\n");
-};
-
-// console.error already goes to stderr by default
-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isAbsolute } from "node:path";
 import {
     ListToolsRequestSchema,
     CallToolRequestSchema,
@@ -31,15 +17,18 @@ import {
 import {
     createMcpConfig,
     logConfigurationSummary,
-    showHelpMessage,
     ContextMcpConfig,
 } from "./config.js";
+import {
+    readCurrentPackageVersion,
+    runCliCommand,
+    shouldStartMcpServer,
+} from "./cli.js";
 import { createRuntimeContext } from "./runtime-context.js";
-import { runCliManageCommand } from "./cli-manage.js";
-import { runCliTestCommand } from "./cli-test.js";
 import { SnapshotManager } from "./snapshot.js";
 import { SyncManager } from "./sync.js";
 import { ToolHandlers } from "./handlers.js";
+import { isHceDebugEnabled } from "./logger.js";
 import { UpdateChecker } from "./update-checker.js";
 
 applySystemProxyPolicy(false);
@@ -48,25 +37,34 @@ process.on("unhandledRejection", (reason) => {
     console.error("[MCP] Unhandled async error (kept server alive):", reason);
 });
 
-const MCP_PACKAGE_NAME = "@hitmux/hitmux-context-engine-mcp";
-const MCP_PACKAGE_VERSION_FALLBACK = "0.0.0";
+let activeCommandAbortController: AbortController | null = null;
+let activeCommandExitTimer: ReturnType<typeof setTimeout> | undefined;
 
-function readCurrentPackageVersion(): string {
-    try {
-        const packageJsonPath = join(
-            dirname(fileURLToPath(import.meta.url)),
-            "..",
-            "package.json",
-        );
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
-            version?: string;
-        };
-        return packageJson.version ?? MCP_PACKAGE_VERSION_FALLBACK;
-    } catch (error) {
-        console.warn("[MCP] Failed to read package version:", error);
-        return MCP_PACKAGE_VERSION_FALLBACK;
+function clearActiveCommandExitTimer(): void {
+    if (activeCommandExitTimer) {
+        clearTimeout(activeCommandExitTimer);
+        activeCommandExitTimer = undefined;
     }
 }
+
+function handleShutdownSignal(signalName: "SIGINT" | "SIGTERM"): void {
+    if (activeCommandAbortController && !activeCommandAbortController.signal.aborted) {
+        console.error(`Received ${signalName}, cancelling active command...`);
+        activeCommandAbortController.abort();
+        clearActiveCommandExitTimer();
+        activeCommandExitTimer = setTimeout(() => {
+            console.error(`Active command did not stop after ${signalName}; exiting.`);
+            process.exit(signalName === "SIGINT" ? 130 : 143);
+        }, 5000);
+        activeCommandExitTimer.unref?.();
+        return;
+    }
+
+    console.error(`Received ${signalName}, shutting down gracefully...`);
+    process.exit(signalName === "SIGINT" ? 130 : 143);
+}
+
+const MCP_PACKAGE_NAME = "@hitmux/hitmux-context-engine-mcp";
 
 class ContextMcpServer {
     private server: Server;
@@ -380,8 +378,9 @@ This tool is versatile and can be used before completing various tasks to retrie
                                 },
                                 limit: {
                                     type: "number",
+                                    default: 10,
                                     description:
-                                        "Optional override for the maximum number of results to return. Leave empty for the bounded default result set; use a specific value only when you need more or fewer results.",
+                                        "Maximum number of results to return. Default to 10 and use 10 for normal searches; set a different value only when the user explicitly asks for more or fewer results.",
                                 },
                                 targetRole: {
                                     type: "string",
@@ -587,15 +586,22 @@ This tool is versatile and can be used before completing various tasks to retrie
 
 // Main execution
 async function main() {
-    // Parse command line arguments
     const args = process.argv.slice(2);
 
-    // Show help if requested
-    if (args.includes("--help") || args.includes("-h")) {
-        showHelpMessage();
-        process.exit(0);
+    if (!shouldStartMcpServer(args)) {
+        activeCommandAbortController = new AbortController();
+        try {
+            const exitCode = await runCliCommand(args, {
+                signal: activeCommandAbortController.signal,
+            });
+            process.exit(exitCode);
+        } finally {
+            activeCommandAbortController = null;
+            clearActiveCommandExitTimer();
+        }
     }
 
+    installMcpConsoleRedirect();
     const ensureConfigResult = configManager.ensureGlobalConfigFile();
     if (ensureConfigResult.created) {
         console.log(
@@ -607,29 +613,31 @@ async function main() {
         );
     }
 
-    if (args[0] === "test") {
-        const exitCode = await runCliTestCommand(args.slice(1));
-        process.exit(exitCode);
-    }
-
-    if (args[0] === "list" || args[0] === "rm" || args[0] === "index") {
-        const exitCode = await runCliManageCommand(args);
-        process.exit(exitCode);
-    }
-
     const server = new ContextMcpServer();
     await server.start();
 }
 
+function installMcpConsoleRedirect(): void {
+    console.log = (...args: any[]) => {
+        if (isHceDebugEnabled()) {
+            process.stderr.write("[LOG] " + args.join(" ") + "\n");
+        }
+    };
+
+    console.warn = (...args: any[]) => {
+        if (isHceDebugEnabled()) {
+            process.stderr.write("[WARN] " + args.join(" ") + "\n");
+        }
+    };
+}
+
 // Handle graceful shutdown
 process.on("SIGINT", () => {
-    console.error("Received SIGINT, shutting down gracefully...");
-    process.exit(0);
+    handleShutdownSignal("SIGINT");
 });
 
 process.on("SIGTERM", () => {
-    console.error("Received SIGTERM, shutting down gracefully...");
-    process.exit(0);
+    handleShutdownSignal("SIGTERM");
 });
 
 // Always start the server - this is designed to be the main entry point

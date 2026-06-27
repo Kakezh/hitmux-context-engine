@@ -64,7 +64,7 @@ import {
     startIndexingWorkerJob,
 } from "./indexing-worker-runner.js";
 
-const DEFAULT_SEARCH_RESULT_LIMIT = 20;
+const DEFAULT_SEARCH_RESULT_LIMIT = 10;
 const SOURCE_CONTEXT_WINDOW_LINES = 4;
 const SEARCH_CONTEXT_MAX_CHARS = 5000;
 const SEARCH_TRACE_EVIDENCE_RESULT_LIMIT = 3;

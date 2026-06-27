@@ -1,5 +1,7 @@
 # Documentation
 
+Language: English | [中文](README.zh-CN.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
 Hitmux Context Engine documentation is intentionally flat. Start with configuration when you are setting up the product, then jump to the page that matches the task in front of you.
 
 | Task | Page |

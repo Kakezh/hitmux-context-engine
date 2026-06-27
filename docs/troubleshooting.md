@@ -1,5 +1,7 @@
 # Troubleshooting
 
+Language: English | [中文](troubleshooting.zh-CN.md) | [Español](troubleshooting.es.md) | [Français](troubleshooting.fr.md) | [Deutsch](troubleshooting.de.md) | [日本語](troubleshooting.ja.md) | [한국어](troubleshooting.ko.md)
+
 ## Check Indexing Status First
 
 Ask the MCP client to run:

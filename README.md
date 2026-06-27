@@ -1,5 +1,7 @@
 # Hitmux Context Engine
 
+Language: English | [中文](README.zh-CN.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
 Semantic code search for MCP clients.
 
 Hitmux Context Engine indexes a repository into Milvus-compatible vector storage, then gives Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and other MCP clients focused tools for finding code by behavior, symbol, workflow, or file role.
@@ -15,39 +17,38 @@ Use it when an AI coding agent needs more than text grep:
 - Prefer implementation files while still surfacing related tests, docs, config, and exports when useful.
 - Keep project configuration in simple `config.conf` files instead of per-client environment setup.
 
-Typical MCP workflow:
+Typical first-use workflow:
 
 ```text
-Index this codebase
+hce index .
 Check the indexing status
 Find the handler that validates MCP tool arguments
 ```
 
 ## Quick Start
 
-Create the runtime config:
-
-```bash
-mkdir -p ~/.hitmux-context-engine
-cat > ~/.hitmux-context-engine/config.conf << 'EOF'
-embeddingProvider = OpenRouter
-embeddingModel = qwen/qwen3-embedding-4b
-openrouterApiKey = sk-or-your-openrouter-api-key
-milvusAddress = localhost:19530
-EOF
-```
-
-For Claude Code, install globally and add the MCP server:
+Create or complete the runtime config:
 
 ```bash
 npm install -g @hitmux/hce@latest
+hce init
+```
+
+Then edit `~/.hitmux-context-engine/config.conf` and fill in the provider key. Check local config and connectivity:
+
+```bash
+hce doctor
+```
+
+For Claude Code, add the MCP server:
+
+```bash
 claude mcp add hitmux-context-engine -- hce
 ```
 
-For OpenAI Codex CLI, install globally and add the MCP server:
+For OpenAI Codex CLI, add the MCP server:
 
 ```bash
-npm install -g @hitmux/hce@latest
 codex mcp add hitmux-context-engine -- hce
 ```
 
@@ -55,12 +56,23 @@ The full package alias `@hitmux/hitmux-context-engine` and the original MCP pack
 
 Database note: Use Local Milvus with `milvusAddress = localhost:19530`. For self-hosted remote Milvus, replace it with the reachable host and port, and add `milvusToken` only if authentication is required. For a free Zilliz Cloud database, sign up at https://cloud.zilliz.com/signup, then use the cloud public endpoint and add `milvusToken` with your Personal Key. Other database backends are not selectable from `config.conf`.
 
-Then open your MCP client in a repository and ask:
+For a new repository, create the first index from the repository root before relying on MCP search:
+
+```bash
+hce index .
+```
+
+Then open your MCP client in the repository and ask:
 
 ```text
-Index this codebase
 Check the indexing status
 Find functions that handle user authentication
+```
+
+You can also check status from a shell:
+
+```bash
+hce status .
 ```
 
 More client examples, including Cursor, Windsurf, Claude Desktop, Gemini CLI, Qwen Code, VS Code MCP, Cline, and Roo Code, are in [docs/quick-start.md](docs/quick-start.md).
@@ -137,3 +149,11 @@ MIT. See [LICENSE](LICENSE).
 ## Acknowledgements
 
 This project is based on the core of [zilliztech/claude-context](https://github.com/zilliztech/claude-context). Thanks to the [Linux Do community](https://linux.do) for its support.
+
+## Screenshots
+
+![Hitmux Context Engine screenshot 1](img/English_1.jpg)
+
+![Hitmux Context Engine screenshot 2](img/English_2.jpg)
+
+![Hitmux Context Engine screenshot 3](img/English_3.jpg)

@@ -1,31 +1,31 @@
 # Quick Start
 
+Language: English | [中文](quick-start.zh-CN.md) | [Español](quick-start.es.md) | [Français](quick-start.fr.md) | [Deutsch](quick-start.de.md) | [日本語](quick-start.ja.md) | [한국어](quick-start.ko.md)
+
 This page shows how to start Hitmux Context Engine from MCP clients. Product configuration lives in `~/.hitmux-context-engine/config.conf` or `.hitmux-context-engine/config.conf` inside a project. MCP client configuration only starts the stdio server.
 
 ## Product Config
 
-Create the runtime config first:
+Install the short CLI globally and create or complete the runtime config:
 
 ```bash
-mkdir -p ~/.hitmux-context-engine
-cat > ~/.hitmux-context-engine/config.conf << 'EOF'
-embeddingProvider = OpenRouter
-embeddingModel = qwen/qwen3-embedding-4b
-openrouterApiKey = sk-or-your-openrouter-api-key
-milvusAddress = localhost:19530
-EOF
+npm install -g @hitmux/hce@latest
+hce init
 ```
+
+Then edit `~/.hitmux-context-engine/config.conf`, fill in the provider key, and run `hce doctor` to check config parsing plus embedding/vector database connectivity. Use `hce doctor --no-connectivity` when you only want local checks.
 
 Database notes: Local Milvus uses `milvusAddress = localhost:19530`. For a self-hosted remote Milvus instance, use the reachable host and port; set `milvusToken` only when the server requires authentication. For a free Zilliz Cloud database, sign up at https://cloud.zilliz.com/signup, then use the cloud public endpoint as `milvusAddress` and put the Personal Key in `milvusToken`. `config.conf` cannot switch to SQLite, Chroma, Qdrant, LanceDB, or other database backends.
 
 Hitmux Context Engine does not inherit system proxy environment variables by default. Configure `embeddingUseSystemProxy` and `databaseUseSystemProxy` only when the embedding provider or vector database must use a proxy; see [Configuration](configuration.md#system-proxy).
 
-`@hitmux/hce`, `@hitmux/hitmux-context-engine`, and `@hitmux/hitmux-context-engine-mcp` all start the same MCP server. Install the short CLI globally before adding it to an MCP client:
+`@hitmux/hce`, `@hitmux/hitmux-context-engine`, and `@hitmux/hitmux-context-engine-mcp` all start the same MCP server. Plain `hce` with no arguments is the MCP stdio server mode used by clients:
 
 ```bash
-npm install -g @hitmux/hce@latest
 hce
 ```
+
+For shell diagnostics after indexing, run `hce status .` from the repository root.
 
 ## Claude Code
 
@@ -219,10 +219,15 @@ CC Switch:
 
 ## Use In A Repository
 
-Open any code repository, then ask your MCP client:
+For a new repository, create the first index from the repository root:
+
+```bash
+hce index .
+```
+
+Then open your MCP client in the repository and ask:
 
 ```text
-Index this codebase
 Check the indexing status
 Find functions that handle user authentication
 ```
