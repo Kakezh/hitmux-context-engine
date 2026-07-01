@@ -169,6 +169,51 @@ describe('Context lexical search supplement', () => {
         expect(exactFilter).not.toContain('metadata like');
     });
 
+    it('scores vector results with returned metadata instead of rescanning content', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'vector-definition',
+                content: 'const referenceOnly = FooRegistry;',
+                relativePath: 'src/registries/foo.ts',
+                startLine: 1,
+                endLine: 3,
+                metadata: {
+                    language: 'typescript',
+                    fileName: 'foo.ts',
+                    basename: 'foo',
+                    symbols: ['FooRegistry'],
+                    definitionIdentifiers: ['FooRegistry'],
+                },
+            }, 0.91),
+        ]);
+        vectorDatabase.query.mockResolvedValueOnce([
+            createRow({
+                id: 'lexical-reference',
+                content: 'const other = FooRegistry;',
+                relativePath: 'src/bootstrap/reference.ts',
+                metadata: {
+                    language: 'typescript',
+                    fileName: 'reference.ts',
+                    basename: 'reference',
+                    symbols: ['FooRegistry'],
+                    definitionIdentifiers: [],
+                },
+            }),
+        ]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'FooRegistry', 5, 0.3);
+
+        expect(results[0].relativePath).toBe('src/registries/foo.ts');
+        expect(results[0].scoreReasons).toEqual(expect.arrayContaining(['exact_symbol_definition']));
+        expect(results[0]).not.toHaveProperty('lexicalMetadata');
+    });
+
     it('uses a larger vector candidate pool while preserving the final output limit', async () => {
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.search.mockResolvedValue(Array.from({ length: 80 }, (_, index) => createVectorResult({

@@ -47,7 +47,13 @@ import {
 } from './search/file-role';
 import { normalizeLineRange } from './search/line-range';
 import { extractPathTokens, splitStructuralToken } from './search/path-tokens';
-import { extractDefinitionIdentifiers } from './search/definition-identifiers';
+import {
+    DefinitionIdentifierScanEvent,
+    extractDefinitionIdentifiers,
+    MAX_DEFINITION_IDENTIFIERS,
+    MAX_DEFINITION_SCAN_CHARS,
+    MAX_DEFINITION_SCAN_LINES
+} from './search/definition-identifiers';
 import { diversifySemanticSearchResultsByFile } from './search/result-diversify';
 import { deduplicateSemanticSearchResults, getNormalizedContentHash } from './search/result-dedupe';
 import { traceSymbolInFiles } from './search/symbol-trace';
@@ -108,6 +114,8 @@ interface IndexingTimingMetrics {
     scanFilesMs: number;
     fileWeightStatMs: number;
     readAndSplitMs: number;
+    definitionScanMs: number;
+    definitionScanSkippedChunks: number;
     embeddingMs: number;
     vectorInsertMs: number;
     flushLoadMs: number;
@@ -254,6 +262,10 @@ interface RankedSearchResult extends SemanticSearchResult {
     lexicalScore: number;
     ownerTier: number;
     originalRank: number;
+    lexicalMetadata?: QueryRow;
+}
+
+interface InternalSemanticSearchResult extends SemanticSearchResult {
     lexicalMetadata?: QueryRow;
 }
 
@@ -904,7 +916,11 @@ export class Context {
         );
         this.drainVectorDatabasePerformanceMetrics(timingMetrics);
 
-        console.log(`[Context] ✅ Codebase indexing completed! Processed ${result.processedFiles} files in total, generated ${result.totalChunks} code chunks`);
+        if (result.status === 'completed') {
+            console.log(`[Context] ✅ Codebase indexing completed! Processed ${result.processedFiles} files in total, generated ${result.totalChunks} code chunks`);
+        } else {
+            console.warn(`[Context] ⚠️ Codebase indexing stopped at the chunk limit. Processed ${result.processedFiles}/${codeFiles.length} files, generated ${result.totalChunks} code chunks`);
+        }
         timingMetrics.totalIndexingMs = this.getMonotonicMs() - indexingStartedAt;
         this.logIndexingTimingSummary(codebasePath, {
             indexedFiles: result.processedFiles,
@@ -915,10 +931,12 @@ export class Context {
         }, timingMetrics);
 
         progressCallback?.({
-            phase: 'Indexing complete!',
+            phase: result.status === 'completed' ? 'Indexing complete!' : 'Indexing stopped at chunk limit',
             current: result.processedFiles,
             total: codeFiles.length,
-            percentage: 100
+            percentage: result.status === 'completed'
+                ? 100
+                : progressTracker.getLastPercentage()
         });
         if (result.status === 'completed') {
             await this.commitFullIndexBaseline(codebasePath, baselineSynchronizer);
@@ -2045,7 +2063,8 @@ export class Context {
 
         const rankedByKey = new Map<string, RankedSearchResult>();
         vectorResults.forEach((result, index) => {
-            const lexicalScore = this.scoreLexicalMatchWithReasons(result, terms, {}, roleIntent);
+            const metadata = (result as InternalSemanticSearchResult).lexicalMetadata ?? {};
+            const lexicalScore = this.scoreLexicalMatchWithReasons(result, terms, metadata, roleIntent);
             const reasons: SearchScoreReason[] = lexicalScore.reasons.length > 0 ? lexicalScore.reasons : ['semantic_match'];
             rankedByKey.set(this.getSearchResultKey(result), {
                 ...result,
@@ -2054,6 +2073,7 @@ export class Context {
                 ownerTier: lexicalScore.ownerTier,
                 scoreReason: this.getPrimaryScoreReason(reasons),
                 scoreReasons: reasons,
+                lexicalMetadata: metadata,
                 originalRank: index
             });
         });
@@ -2543,7 +2563,7 @@ export class Context {
                 ? metadataRole
                 : classifyFileRole(document.relativePath, document.fileExtension);
 
-        return {
+        const result: InternalSemanticSearchResult = {
             content: document.content,
             relativePath: document.relativePath,
             ...lineRange,
@@ -2552,8 +2572,10 @@ export class Context {
             scoreReason: 'semantic_match',
             scoreReasons: ['semantic_match'],
             chunkRole: typeof document.metadata.chunkRole === 'string' ? document.metadata.chunkRole : undefined,
-            fileRole
+            fileRole,
+            lexicalMetadata: document.metadata,
         };
+        return result;
     }
 
     private rankLexicalRows(rows: QueryRow[], terms: LexicalSearchTerms, roleIntent: FileRoleIntent): RankedLexicalCandidate[] {
@@ -2715,7 +2737,11 @@ export class Context {
         const pathTokens = this.getMetadataStringArray(metadata, 'pathTokens');
         let contentDefinitionIdentifiers: string[] | undefined;
         const getContentDefinitionIdentifiers = () => {
-            contentDefinitionIdentifiers ??= extractDefinitionIdentifiers(content);
+            contentDefinitionIdentifiers ??= extractDefinitionIdentifiers(content, {
+                relativePath,
+                fileExtension: path.extname(relativePath),
+                language: this.getMetadataString(metadata, 'language') || undefined,
+            });
             return contentDefinitionIdentifiers;
         };
 
@@ -3467,6 +3493,8 @@ export class Context {
             scanFilesMs: 0,
             fileWeightStatMs: 0,
             readAndSplitMs: 0,
+            definitionScanMs: 0,
+            definitionScanSkippedChunks: 0,
             embeddingMs: 0,
             vectorInsertMs: 0,
             flushLoadMs: 0,
@@ -3695,6 +3723,7 @@ export class Context {
     ): Promise<{
         updateFile: (filePath: string, fileProgress: number, phase: string) => void;
         completeFile: (filePath: string, phase: string) => void;
+        getLastPercentage: () => number;
     }> {
         const fileWeights = await this.getFileProcessingWeights(filePaths, knownFileSizes);
         const completedFiles = new Set<string>();
@@ -3731,7 +3760,8 @@ export class Context {
                     completedWeight += fileWeights.weights.get(filePath) || 1;
                 }
                 emit(phase, completedWeight, true);
-            }
+            },
+            getLastPercentage: () => Math.max(startPercentage, lastPercentage)
         };
     }
 
@@ -4298,7 +4328,7 @@ export class Context {
 
         if (isHybrid === true) {
             // Create hybrid vector documents
-            const documents: VectorDocument[] = chunks.map((chunk, index) => this.createVectorDocument(chunk, embeddings[index], codebasePath, index, runCache));
+            const documents: VectorDocument[] = chunks.map((chunk, index) => this.createVectorDocument(chunk, embeddings[index], codebasePath, index, timingMetrics, runCache));
 
             // Store to vector database
             const insertStartedAt = this.getMonotonicMs();
@@ -4315,7 +4345,7 @@ export class Context {
             }
         } else {
             // Create regular vector documents
-            const documents: VectorDocument[] = chunks.map((chunk, index) => this.createVectorDocument(chunk, embeddings[index], codebasePath, index, runCache));
+            const documents: VectorDocument[] = chunks.map((chunk, index) => this.createVectorDocument(chunk, embeddings[index], codebasePath, index, timingMetrics, runCache));
 
             // Store to vector database
             const insertStartedAt = this.getMonotonicMs();
@@ -4429,7 +4459,14 @@ export class Context {
         ].join(':');
     }
 
-    private createVectorDocument(chunk: CodeChunk, embedding: EmbeddingVector, codebasePath: string, chunkIndex: number, runCache?: IndexingRunCache): VectorDocument {
+    private createVectorDocument(
+        chunk: CodeChunk,
+        embedding: EmbeddingVector,
+        codebasePath: string,
+        chunkIndex: number,
+        timingMetrics?: IndexingTimingMetrics,
+        runCache?: IndexingRunCache
+    ): VectorDocument {
         if (!chunk.metadata.filePath) {
             throw new Error(`Missing filePath in chunk metadata at index ${chunkIndex}`);
         }
@@ -4440,7 +4477,15 @@ export class Context {
         const { filePath: _filePath, startLine: _startLine, endLine: _endLine, ...restMetadata } = chunk.metadata;
         const sourceStartLine = chunk.metadata.startLine || 0;
         const sourceEndLine = chunk.metadata.endLine || 0;
-        const searchMetadata = this.createSearchMetadata(normalizedRelativePath, chunk.content, restMetadata, runCache);
+        const searchMetadata = this.createSearchMetadata(
+            normalizedRelativePath,
+            chunk.content,
+            restMetadata,
+            timingMetrics,
+            runCache,
+            sourceStartLine,
+            sourceEndLine
+        );
         const structuredFields = this.createStructuredDocumentFields(searchMetadata);
 
         return {
@@ -4465,17 +4510,42 @@ export class Context {
         };
     }
 
-    private createSearchMetadata(relativePath: string, content: string, chunkMetadata: Record<string, unknown>, runCache?: IndexingRunCache): QueryRow {
+    private createSearchMetadata(
+        relativePath: string,
+        content: string,
+        chunkMetadata: Record<string, unknown>,
+        timingMetrics?: IndexingTimingMetrics,
+        runCache?: IndexingRunCache,
+        sourceStartLine?: number,
+        sourceEndLine?: number
+    ): QueryRow {
         const fileName = path.posix.basename(relativePath);
         const extension = path.posix.extname(fileName);
         const basename = path.posix.basename(fileName, extension);
         const pathTokens = extractPathTokens(relativePath);
         const contentHash = crypto.createHash('sha1').update(content).digest('hex');
         const normalizedContentHash = getNormalizedContentHash(content);
-        let definitionIdentifiers = runCache?.definitionIdentifiers.get(contentHash);
+        const language = typeof chunkMetadata.language === 'string'
+            ? chunkMetadata.language
+            : this.getLanguageFromExtension(extension);
+        const definitionCacheKey = [
+            contentHash,
+            language,
+            extension,
+            relativePath,
+        ].join(':');
+        let definitionIdentifiers = runCache?.definitionIdentifiers.get(definitionCacheKey);
         if (!definitionIdentifiers) {
-            definitionIdentifiers = extractDefinitionIdentifiers(content);
-            runCache?.definitionIdentifiers.set(contentHash, definitionIdentifiers);
+            definitionIdentifiers = this.extractChunkDefinitionIdentifiers(
+                content,
+                relativePath,
+                language,
+                extension,
+                sourceStartLine,
+                sourceEndLine,
+                timingMetrics
+            );
+            runCache?.definitionIdentifiers.set(definitionCacheKey, definitionIdentifiers);
         }
         const definitionIdentifierSet = new Set<string>(definitionIdentifiers);
         const symbols = new Set<string>(definitionIdentifierSet);
@@ -4513,6 +4583,76 @@ export class Context {
             pathSegment3: pathSegments[3] || '',
             pathSegment4: pathSegments[4] || '',
         };
+    }
+
+    private extractChunkDefinitionIdentifiers(
+        content: string,
+        relativePath: string,
+        language: string,
+        fileExtension: string,
+        sourceStartLine: number | undefined,
+        sourceEndLine: number | undefined,
+        timingMetrics?: IndexingTimingMetrics
+    ): string[] {
+        const events: DefinitionIdentifierScanEvent[] = [];
+        const startedAt = this.getMonotonicMs();
+        try {
+            return extractDefinitionIdentifiers(content, {
+                language,
+                fileExtension,
+                relativePath,
+                sourceStartLine,
+                sourceEndLine,
+                maxLines: MAX_DEFINITION_SCAN_LINES,
+                maxChars: MAX_DEFINITION_SCAN_CHARS,
+                maxIdentifiers: MAX_DEFINITION_IDENTIFIERS,
+                slowScanMs: 50,
+                onEvent: (event) => events.push(event),
+            });
+        } catch (error) {
+            if (timingMetrics) {
+                timingMetrics.definitionScanSkippedChunks += 1;
+            }
+            console.warn(`[Context] ⚠️ Definition identifier scan failed for ${this.formatChunkLocation(relativePath, sourceStartLine, sourceEndLine)}: ${error instanceof Error ? error.message : String(error)}`);
+            return [];
+        } finally {
+            const elapsedMs = this.getMonotonicMs() - startedAt;
+            if (timingMetrics) {
+                timingMetrics.definitionScanMs += elapsedMs;
+                if (events.some(event => event.kind === 'limit')) {
+                    timingMetrics.definitionScanSkippedChunks += 1;
+                }
+            }
+            this.logDefinitionScanEvents(events, relativePath, sourceStartLine, sourceEndLine, elapsedMs);
+        }
+    }
+
+    private logDefinitionScanEvents(
+        events: DefinitionIdentifierScanEvent[],
+        relativePath: string,
+        sourceStartLine: number | undefined,
+        sourceEndLine: number | undefined,
+        fallbackElapsedMs: number
+    ): void {
+        for (const event of events) {
+            const location = this.formatChunkLocation(relativePath, sourceStartLine, sourceEndLine);
+            const elapsedMs = Math.round(event.elapsedMs || fallbackElapsedMs);
+            if (event.kind === 'limit') {
+                console.warn(`[Context] ⚠️ Definition identifier scan limited for ${location}: reason=${event.reason}, elapsedMs=${elapsedMs}, scannedLines=${event.scannedLines}, scannedChars=${event.scannedChars}, identifiers=${event.identifierCount}`);
+            } else if (event.kind === 'slow') {
+                console.warn(`[Context] ⚠️ Slow definition identifier scan for ${location}: elapsedMs=${elapsedMs}, scannedLines=${event.scannedLines}, scannedChars=${event.scannedChars}, limited=${events.some(item => item.kind === 'limit')}`);
+            }
+        }
+    }
+
+    private formatChunkLocation(relativePath: string, sourceStartLine: number | undefined, sourceEndLine: number | undefined): string {
+        if (sourceStartLine && sourceEndLine) {
+            return `${relativePath}:${sourceStartLine}-${sourceEndLine}`;
+        }
+        if (sourceStartLine) {
+            return `${relativePath}:${sourceStartLine}`;
+        }
+        return relativePath;
     }
 
     private createStructuredDocumentFields(metadata: QueryRow): Partial<VectorDocument> {

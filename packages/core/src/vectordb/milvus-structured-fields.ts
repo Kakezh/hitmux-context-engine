@@ -82,7 +82,15 @@ export function createSlimMetadata(metadata: Record<string, any>): Record<string
     return slimMetadata;
 }
 
-export function mergeStructuredMetadata(result: Record<string, any>, metadata: Record<string, any>): Record<string, any> {
+interface StructuredMetadataMergeOptions {
+    deriveContentMetadata?: boolean;
+}
+
+export function mergeStructuredMetadata(
+    result: Record<string, any>,
+    metadata: Record<string, any>,
+    options: StructuredMetadataMergeOptions = {}
+): Record<string, any> {
     const merged = { ...metadata };
     for (const field of STRUCTURED_METADATA_FIELDS) {
         const value = result[field];
@@ -90,7 +98,7 @@ export function mergeStructuredMetadata(result: Record<string, any>, metadata: R
             merged[field] = value;
         }
     }
-    mergeRowDerivedMetadata(result, merged);
+    mergeRowDerivedMetadata(result, merged, options);
     return merged;
 }
 
@@ -132,7 +140,11 @@ export function hydrateSlimMetadataRows(rows: Record<string, any>[], requestedOu
     });
 }
 
-function mergeRowDerivedMetadata(result: Record<string, any>, metadata: Record<string, any>): void {
+function mergeRowDerivedMetadata(
+    result: Record<string, any>,
+    metadata: Record<string, any>,
+    options: StructuredMetadataMergeOptions
+): void {
     if (typeof metadata.fileName !== 'string' && typeof result.relativePath === 'string') {
         metadata.fileName = path.posix.basename(result.relativePath);
     }
@@ -149,6 +161,10 @@ function mergeRowDerivedMetadata(result: Record<string, any>, metadata: Record<s
     const endLine = getLineNumber(result.endLine);
     if (metadata.sourceEndLine === undefined && endLine !== undefined) {
         metadata.sourceEndLine = endLine;
+    }
+
+    if (options.deriveContentMetadata === false) {
+        return;
     }
 
     if (typeof result.content === 'string') {
@@ -168,7 +184,11 @@ function mergeContentDerivedMetadata(content: string, result: Record<string, any
         metadata.pathTokens = extractPathTokens(result.relativePath);
     }
 
-    const definitionIdentifiers = new Set<string>(extractDefinitionIdentifiers(content));
+    const definitionIdentifiers = new Set<string>(extractDefinitionIdentifiers(content, {
+        relativePath: typeof result.relativePath === 'string' ? result.relativePath : undefined,
+        fileExtension: typeof result.fileExtension === 'string' ? result.fileExtension : undefined,
+        language: typeof metadata.language === 'string' ? metadata.language : undefined,
+    }));
     const symbols = new Set<string>(definitionIdentifiers);
     const symbolName = typeof metadata.symbolName === 'string'
         ? metadata.symbolName

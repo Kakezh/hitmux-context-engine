@@ -659,7 +659,9 @@ export class MilvusVectorDatabase implements VectorDatabase {
         return searchResult.results.map((result: any) => {
             let metadata = {};
             try {
-                metadata = mergeStructuredMetadata(result, JSON.parse(result.metadata || '{}'));
+                metadata = mergeStructuredMetadata(result, JSON.parse(result.metadata || '{}'), {
+                    deriveContentMetadata: false,
+                });
             } catch (error) {
                 console.warn(`[MilvusDB] Failed to parse metadata for item ${result.id}:`, error);
             }
@@ -1009,7 +1011,9 @@ export class MilvusVectorDatabase implements VectorDatabase {
             return searchResult.results.map((result: any) => {
                 let metadata = {};
                 try {
-                    metadata = mergeStructuredMetadata(result, JSON.parse(result.metadata || '{}'));
+                    metadata = mergeStructuredMetadata(result, JSON.parse(result.metadata || '{}'), {
+                        deriveContentMetadata: false,
+                    });
                 } catch (error) {
                     console.warn(`[MilvusDB] Failed to parse metadata for item ${result.id}:`, error);
                 }

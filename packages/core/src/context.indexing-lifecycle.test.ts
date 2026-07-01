@@ -350,6 +350,7 @@ describe('Context indexing lifecycle', () => {
             vectorDatabase,
             codeSplitter: new OneChunkSplitter(),
         });
+        const progressEvents: Array<{ phase: string; percentage: number }> = [];
         const processFileListSpy = jest
             .spyOn(context as any, 'processFileList')
             .mockResolvedValue({
@@ -362,7 +363,12 @@ describe('Context indexing lifecycle', () => {
             });
 
         try {
-            await expect(context.indexCodebase(project)).resolves.toMatchObject({
+            await expect(context.indexCodebase(project, progress => {
+                progressEvents.push({
+                    phase: progress.phase,
+                    percentage: progress.percentage,
+                });
+            })).resolves.toMatchObject({
                 indexedFiles: 1,
                 totalChunks: 1,
                 status: 'limit_reached',
@@ -370,6 +376,12 @@ describe('Context indexing lifecycle', () => {
         } finally {
             processFileListSpy.mockRestore();
         }
+
+        expect(progressEvents.at(-1)).toEqual({
+            phase: 'Indexing stopped at chunk limit',
+            percentage: expect.any(Number),
+        });
+        expect(progressEvents.at(-1)?.percentage).toBeLessThan(100);
 
         expect(vectorDatabase.writeIndexManifest).toHaveBeenCalledWith(expect.objectContaining({
             codebasePath: project,
@@ -466,6 +478,8 @@ describe('Context indexing lifecycle', () => {
                 'scanFilesMs',
                 'fileWeightStatMs',
                 'readAndSplitMs',
+                'definitionScanMs',
+                'definitionScanSkippedChunks',
                 'embeddingMs',
                 'vectorInsertMs',
                 'verifyMs',
@@ -476,6 +490,68 @@ describe('Context indexing lifecycle', () => {
             expect(typeof summary.chunksPerSecond).toBe('number');
         } finally {
             logSpy.mockRestore();
+        }
+    });
+
+    it('bounds definition identifier scans during indexing and keeps code metadata', async () => {
+        const project = path.join(tempRoot, 'definition-scan-budget-project');
+        await fs.mkdir(project, { recursive: true });
+        await fs.writeFile(path.join(project, 'README.md'), [
+            '# Recovery Docs',
+            'The documentation content in this repository may be quite extensive. The current statistics for the `docs/` directory (the following data may not be updated in real time):',
+            '| Field | Value |',
+            '| --- | --- |',
+            `| prose | ${'中文说明（不是代码定义）'.repeat(20000)} |`,
+            'public String shouldNotBeMarkdownDefinition() {',
+        ].join('\n'));
+        await fs.writeFile(path.join(project, 'cli.original.readable.js'), `function bootCli(){return 1};${'var x=(x||0)+1;'.repeat(30000)}`);
+        await fs.writeFile(path.join(project, 'service.ts'), 'export function startService() { return true; }\n');
+        await fs.writeFile(path.join(project, 'package.json'), JSON.stringify({
+            scripts: {
+                fake: 'function FakeFunction() {}',
+                handler: '.handler = FakeHandler',
+            },
+        }));
+        await writeProjectConfig(project, {
+            embeddingBatchSize: 10,
+        });
+
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.getCollectionRowCount.mockResolvedValue(4);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new OneChunkSplitter(),
+        });
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            await expect(context.indexCodebase(project)).resolves.toMatchObject({
+                indexedFiles: 4,
+                totalChunks: 4,
+                status: 'completed',
+            });
+
+            const documents = vectorDatabase.insert.mock.calls.flatMap(([, inserted]) => inserted) as VectorDocument[];
+            const documentsByPath = new Map(documents.map(document => [document.relativePath, document]));
+            expect(documentsByPath.get('service.ts')?.metadata.definitionIdentifiers).toEqual(expect.arrayContaining(['startService']));
+            expect(documentsByPath.get('README.md')?.metadata.definitionIdentifiers).toEqual(expect.arrayContaining(['Recovery Docs']));
+            expect(documentsByPath.get('README.md')?.metadata.definitionIdentifiers).not.toEqual(expect.arrayContaining(['shouldNotBeMarkdownDefinition']));
+            expect(documentsByPath.get('package.json')?.metadata.definitionIdentifiers).toEqual([]);
+
+            const timingCall = logSpy.mock.calls.find(([message]) => message === '[Context] ⏱️ Indexing timing summary:');
+            expect(timingCall).toBeDefined();
+            const summary = timingCall?.[1] as Record<string, unknown>;
+            expect(typeof summary.definitionScanMs).toBe('number');
+            expect(summary.definitionScanSkippedChunks).toBeGreaterThanOrEqual(1);
+            expect(warnSpy.mock.calls.some(([message]) =>
+                typeof message === 'string' && message.includes('Definition identifier scan limited')
+            )).toBe(true);
+        } finally {
+            logSpy.mockRestore();
+            warnSpy.mockRestore();
         }
     });
 

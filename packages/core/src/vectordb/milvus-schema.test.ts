@@ -225,6 +225,36 @@ describe('Milvus structured metadata schema', () => {
         expect(metadata.normalizedContentHash).toMatch(/^[0-9a-f]{40}$/);
     });
 
+    it('can skip content-derived metadata for search result hydration', () => {
+        const metadata = mergeStructuredMetadata({
+            content: 'export function buildRoom() {}',
+            relativePath: 'src/buildRoom.ts',
+            fileExtension: '.ts',
+            startLine: 10,
+            endLine: 12,
+            primarySymbol: 'buildRoom',
+            symbolKind: 'function',
+        }, {
+            language: 'typescript',
+        }, {
+            deriveContentMetadata: false,
+        });
+
+        expect(metadata).toMatchObject({
+            language: 'typescript',
+            fileName: 'buildRoom.ts',
+            fileExtension: '.ts',
+            sourceStartLine: 10,
+            sourceEndLine: 12,
+            primarySymbol: 'buildRoom',
+            symbolKind: 'function',
+        });
+        expect(metadata).not.toHaveProperty('contentHash');
+        expect(metadata).not.toHaveProperty('normalizedContentHash');
+        expect(metadata).not.toHaveProperty('definitionIdentifiers');
+        expect(metadata).not.toHaveProperty('symbols');
+    });
+
     it('hydrates query rows while preserving requested output fields', () => {
         const rows = hydrateSlimMetadataRows([createHydrationRow({
             startLine: '10',
