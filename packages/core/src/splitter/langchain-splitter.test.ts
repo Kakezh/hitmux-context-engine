@@ -22,4 +22,29 @@ describe('LangChainCodeSplitter fallback line estimation', () => {
         expect(first).toMatchObject({ start: 1, end: 1 });
         expect(second).toMatchObject({ start: 3, end: 3 });
     });
+
+    it('produces line-bounded generic chunks for config and mobile build formats', async () => {
+        const splitter = new LangChainCodeSplitter(80, 10);
+        const samples = [
+            { language: 'json', filePath: 'package.json', content: '{\n  "name": "fixture",\n  "scripts": { "test": "vitest" }\n}\n' },
+            { language: 'yaml', filePath: 'settings.yaml', content: 'android:\n  namespace: com.hitmux.fixture\n' },
+            { language: 'xml', filePath: 'AndroidManifest.xml', content: '<manifest package="com.hitmux.fixture">\n  <application />\n</manifest>\n' },
+            { language: 'plist', filePath: 'Info.plist', content: '<plist>\n  <dict>\n    <key>CFBundleName</key>\n  </dict>\n</plist>\n' },
+            { language: 'gradle', filePath: 'build.gradle', content: 'plugins {\n  id "com.android.application"\n}\n' },
+            { language: 'kotlin', filePath: 'settings.gradle.kts', content: 'pluginManagement {\n  repositories { google() }\n}\n' },
+        ];
+
+        for (const sample of samples) {
+            const chunks = await splitter.split(sample.content, sample.language, sample.filePath);
+
+            expect(chunks.length).toBeGreaterThan(0);
+            for (const chunk of chunks) {
+                expect(chunk.content.trim().length).toBeGreaterThan(0);
+                expect(chunk.metadata.language).toBe(sample.language);
+                expect(chunk.metadata.filePath).toBe(sample.filePath);
+                expect(chunk.metadata.startLine).toBeGreaterThanOrEqual(1);
+                expect(chunk.metadata.endLine).toBeGreaterThanOrEqual(chunk.metadata.startLine);
+            }
+        }
+    });
 });

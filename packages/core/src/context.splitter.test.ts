@@ -232,6 +232,55 @@ describe('Context request-scoped splitters', () => {
         expect(insertedDocuments[0].relativePath).toBe('Token.sol');
     });
 
+    it('indexes common config and mobile build extensions with stable language names', async () => {
+        const project = path.join(tempRoot, 'project-config-languages');
+        await fs.mkdir(project);
+        await fs.writeFile(path.join(project, 'package.json'), '{"scripts":{"test":"vitest"}}');
+        await fs.writeFile(path.join(project, 'settings.yaml'), 'enabled: true\n');
+        await fs.writeFile(path.join(project, 'values.yml'), 'name: fixture\n');
+        await fs.writeFile(path.join(project, 'AndroidManifest.xml'), '<manifest package="com.hitmux.fixture" />');
+        await fs.writeFile(path.join(project, 'Info.plist'), '<plist><dict></dict></plist>');
+        await fs.writeFile(path.join(project, 'settings.gradle.kts'), 'pluginManagement { repositories { google() } }');
+        await fs.writeFile(path.join(project, 'build.gradle'), 'plugins { id "com.android.application" }');
+
+        const vectorDatabase = createVectorDatabase();
+        const splitter = new RecordingSplitter('context');
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: splitter,
+        });
+
+        await context.indexCodebase(project);
+
+        const languageByFile = new Map(splitter.calls.map(call => [
+            path.basename(call.filePath || ''),
+            call.language,
+        ]));
+        expect(languageByFile).toEqual(new Map([
+            ['AndroidManifest.xml', 'xml'],
+            ['Info.plist', 'plist'],
+            ['build.gradle', 'gradle'],
+            ['package.json', 'json'],
+            ['settings.gradle.kts', 'kotlin'],
+            ['settings.yaml', 'yaml'],
+            ['values.yml', 'yaml'],
+        ]));
+
+        const insertedDocuments = vectorDatabase.insert.mock.calls
+            .flatMap(([, documents]) => documents);
+        expect(insertedDocuments.map(document => document.relativePath).sort()).toEqual([
+            'AndroidManifest.xml',
+            'Info.plist',
+            'build.gradle',
+            'package.json',
+            'settings.gradle.kts',
+            'settings.yaml',
+            'values.yml',
+        ]);
+    });
+
     it('indexes Jupyter notebooks from markdown and code cell source only', async () => {
         const project = path.join(tempRoot, 'project-notebook');
         await fs.mkdir(project);

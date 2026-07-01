@@ -579,6 +579,42 @@ test("successful automatic sync updates snapshot without querying full collectio
     });
 });
 
+test("manual write guard makes global automatic sync skip without snapshot warning", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(codebasePath, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+
+        let reindexCalls = 0;
+        const context = {
+            reindexByChange: async () => {
+                reindexCalls += 1;
+                return { added: 0, removed: 0, modified: 0 };
+            }
+        } as any;
+        const syncManager = new SyncManager(context, snapshotManager);
+        const releaseManualWrite = syncManager.beginManualWrite();
+
+        try {
+            await syncManager.handleSyncIndex();
+        } finally {
+            releaseManualWrite();
+        }
+
+        const info = snapshotManager.getCodebaseInfo(codebasePath);
+        assert.equal(reindexCalls, 0);
+        assert.equal(info?.status, "indexed");
+        assert.equal((info as any).syncWarning, undefined);
+    });
+});
+
 test("clean project watcher state skips full change scan before fallback interval", async () => {
     await withTempHome(async (tempRoot) => {
         const codebasePath = path.join(tempRoot, "repo");
@@ -1173,6 +1209,49 @@ test("global sync does not overlap an active project watcher sync in the same ma
         releaseWatcherSync();
         await watcherSyncPromise;
         await syncManager.stopProjectWatcher();
+    });
+});
+
+test("project watcher sync queues behind manual write guard and runs after release", async () => {
+    await withTempHome(async (tempRoot) => {
+        await writeProjectConfig(tempRoot, { projectWatcherDebounceMs: 0 });
+        const codebasePath = path.join(tempRoot, "repo");
+        await mkdir(codebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(codebasePath, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+
+        let fullScanCalls = 0;
+        const context = {
+            reindexByChange: async () => {
+                fullScanCalls += 1;
+                return { added: 0, removed: 0, modified: 0 };
+            }
+        } as any;
+        const syncManager = new SyncManager(context, snapshotManager);
+        (syncManager as any).projectChangeTracker = {
+            watch: () => undefined,
+            getState: () => ({ kind: "clean", version: 1 }),
+            markClean: () => undefined,
+            close: async () => undefined
+        };
+        const releaseManualWrite = syncManager.beginManualWrite();
+
+        await (syncManager as any).runProjectWatcherSync(codebasePath, {
+            forceFullScan: true
+        });
+
+        assert.equal(fullScanCalls, 0);
+        assert.equal((syncManager as any).projectWatcherFullScanQueued.size, 1);
+
+        releaseManualWrite();
+        await waitFor(() => fullScanCalls === 1, 500);
+        syncManager.stopBackgroundSync();
     });
 });
 

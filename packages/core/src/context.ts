@@ -341,12 +341,12 @@ const DEFAULT_SUPPORTED_EXTENSIONS = [
     // Programming languages
     '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.cpp', '.c', '.h', '.hpp',
     '.cs', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.scala', '.m', '.mm',
-    '.dart', '.sol', '.ex', '.exs', '.lua', '.luau',
+    '.dart', '.sol', '.ex', '.exs', '.lua', '.luau', '.kts',
     // Structured config and build files with bounded default coverage
-    '.toml', '.cmake',
+    '.json', '.yaml', '.yml', '.xml', '.plist', '.toml', '.cmake', '.gradle',
     // Text and markup files
     '.md', '.markdown', '.ipynb',
-    // '.txt',  '.json', '.yaml', '.yml', '.xml', '.html', '.htm',
+    // '.txt', '.html', '.htm',
     // '.css', '.scss', '.less', '.sql', '.sh', '.bash', '.env'
 ];
 
@@ -393,15 +393,34 @@ const DEFAULT_IGNORE_PATTERNS = [
     '*.min.map',
     '*.bundle.js',
     '*.bundle.css',
+    '*.min.json',
+    '*.minified.json',
+    '*.bundle.json',
+    '*.generated.json',
+    '*.gen.json',
+    'generated.json',
+    'minified.json',
     '*.chunk.js',
     '*.vendor.js',
     '*.polyfills.js',
     '*.runtime.js',
     '*.map', // source map files
+    'package-lock.json',
+    'npm-shrinkwrap.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'bun.lockb',
     'node_modules', '.git', '.svn', '.hg', 'build', 'dist', 'out',
     'target', '.vscode', '.idea', '__pycache__', '.pytest_cache',
     'coverage', '.nyc_output', 'logs', 'tmp', 'temp'
 ];
+
+const AUTO_DISCOVERED_IGNORE_FILE_NAMES = new Set([
+    '.hitmux-context-engineignore',
+    '.hceignore',
+    '.gitignore',
+    '.cursorignore'
+]);
 
 export interface ContextConfig {
     embedding?: Embedding;
@@ -1511,6 +1530,18 @@ export class Context {
 
         if (options.targetRole === 'all') {
             return decoratedResults
+                .sort((a, b) => {
+                    const anchorDelta = this.getAllTargetAnchorPriority(a, query) - this.getAllTargetAnchorPriority(b, query);
+                    if (anchorDelta !== 0) return anchorDelta;
+
+                    const structureDelta = b.structureScore - a.structureScore;
+                    if (structureDelta !== 0) return structureDelta;
+
+                    const scoreDelta = b.score - a.score;
+                    if (scoreDelta !== 0) return scoreDelta;
+
+                    return a.originalOrder - b.originalOrder;
+                })
                 .slice(0, outputLimit)
                 .map(result => this.stripGroupedSearchResultSortFields(result));
         }
@@ -1753,6 +1784,19 @@ export class Context {
         return 2;
     }
 
+    private getAllTargetAnchorPriority(result: SemanticSearchResult, query: string): number {
+        const reasons = result.scoreReasons ?? (result.scoreReason ? [result.scoreReason] : []);
+        if (reasons.includes('exact_filename') || reasons.includes('exact_symbol_definition')) {
+            return 0;
+        }
+
+        if (this.hasExplicitPathLiteralMatch(result.relativePath, query)) {
+            return 1;
+        }
+
+        return 2;
+    }
+
     private hasRouteCompositionAnchorMatch(result: SemanticSearchResult, query: string): boolean {
         const routeCompositionTerms = this.extractLexicalSearchTerms(query).routeCompositionTerms;
         if (routeCompositionTerms.length === 0) {
@@ -1825,7 +1869,10 @@ export class Context {
         }
 
         const reasons = result.scoreReasons ?? (result.scoreReason ? [result.scoreReason] : []);
-        if (reasons.includes('reference_match') && !reasons.includes('exact_filename') && !reasons.includes('exact_symbol_definition')) {
+        if (targetRole !== 'all'
+            && reasons.includes('reference_match')
+            && !reasons.includes('exact_filename')
+            && !reasons.includes('exact_symbol_definition')) {
             score -= 20;
         }
 
@@ -1833,6 +1880,10 @@ export class Context {
     }
 
     private getChunkRoleStructureScore(chunkRole: string | undefined, targetRole: SearchTargetRole): number {
+        if (targetRole === 'all') {
+            return 0;
+        }
+
         switch (chunkRole) {
             case 'definition':
                 return targetRole === 'test' ? 40 : 140;
@@ -1843,7 +1894,7 @@ export class Context {
             case 'assertion':
                 return targetRole === 'test' ? 90 : -60;
             case 're_export':
-                return targetRole === 'implementation' ? -140 : -20;
+                return targetRole === 'implementation' ? -140 : 0;
             case 'module_decl':
                 return targetRole === 'implementation' ? -60 : 0;
             case 'reference':
@@ -1953,7 +2004,7 @@ export class Context {
         vectorResults: SemanticSearchResult[],
         options: NormalizedSemanticSearchOptions
     ): Promise<SemanticSearchResult[]> {
-        if (!options.enableLexicalSupplement || options.targetRole === 'all') {
+        if (!options.enableLexicalSupplement) {
             return vectorResults;
         }
 
@@ -1962,7 +2013,9 @@ export class Context {
             return vectorResults;
         }
 
-        const roleIntent = this.getSearchFileRoleIntent(query, filterExpr, options.targetRole);
+        const roleIntent = options.targetRole === 'all'
+            ? this.getNeutralFileRoleIntent()
+            : this.getSearchFileRoleIntent(query, filterExpr, options.targetRole);
         let exactRows: QueryRow[] = [];
         let exactCandidates: RankedLexicalCandidate[] = [];
         try {
@@ -2516,6 +2569,7 @@ export class Context {
 
                 return { result, metadata, lexicalScore };
             })
+            .filter(candidate => roleIntent.disableRoleScoring !== true || candidate.lexicalScore.score > 0)
             .sort((a, b) => {
                 const ownerTierDelta = b.lexicalScore.ownerTier - a.lexicalScore.ownerTier;
                 if (ownerTierDelta !== 0) return ownerTierDelta;
@@ -4546,6 +4600,7 @@ export class Context {
             '.rb': 'ruby',
             '.swift': 'swift',
             '.kt': 'kotlin',
+            '.kts': 'kotlin',
             '.scala': 'scala',
             '.m': 'objective-c',
             '.mm': 'objective-c',
@@ -4555,8 +4610,14 @@ export class Context {
             '.exs': 'elixir',
             '.lua': 'lua',
             '.luau': 'luau',
+            '.json': 'json',
+            '.yaml': 'yaml',
+            '.yml': 'yaml',
+            '.xml': 'xml',
+            '.plist': 'plist',
             '.toml': 'toml',
             '.cmake': 'cmake',
+            '.gradle': 'gradle',
             '.md': 'markdown',
             '.markdown': 'markdown',
             '.ipynb': 'jupyter'
@@ -4615,7 +4676,7 @@ export class Context {
         try {
             let fileBasedPatterns: string[] = [];
 
-            // Load root and nested .*ignore files with directory-local scope.
+            // Load root and nested general-purpose codebase ignore files with directory-local scope.
             const ignoreFiles = await this.findIgnoreFiles(codebasePath, additionalIgnoreFiles);
             for (const ignoreFile of ignoreFiles) {
                 const patterns = await this.loadIgnoreFile(ignoreFile.filePath, path.relative(codebasePath, ignoreFile.filePath));
@@ -4659,7 +4720,10 @@ export class Context {
     }
 
     /**
-     * Find all .xxxignore files in the codebase directory
+     * Find general-purpose codebase ignore files in the codebase directory.
+     * Tool-specific ignore files such as .dockerignore, .semgrepignore, and
+     * .npmignore often exclude source/test/mobile trees for that tool only;
+     * callers can still pass them explicitly through additional ignore files.
      * @param codebasePath Path to the codebase
      * @returns Array of ignore file paths
      */
@@ -4677,7 +4741,7 @@ export class Context {
                     const relativePath = path.relative(codebasePath, fullPath).replace(/\\/g, '/');
 
                     if (entry.isFile()) {
-                        if (entry.name.startsWith('.') && entry.name.endsWith('ignore')) {
+                        if (AUTO_DISCOVERED_IGNORE_FILE_NAMES.has(entry.name)) {
                             ignoreFiles.push({ filePath: fullPath, scopeRelativePath: currentRelativePath });
                         }
                     } else if (entry.isDirectory() && !baseMatcher.shouldIgnore(relativePath, true)) {

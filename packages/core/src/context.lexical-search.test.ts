@@ -379,6 +379,151 @@ describe('Context lexical search supplement', () => {
         expect(results[1].relativePath).toBe('server/src/rooms/GameRoom.ts');
     });
 
+    it('uses exact filename lexical recall for targetRole=all', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'semantic-drift',
+                content: 'Android application startup code without manifest metadata',
+                relativePath: 'src/mobile/bootstrap.kt',
+                startLine: 1,
+                endLine: 20,
+                fileExtension: '.kt',
+                metadata: {
+                    language: 'kotlin',
+                    fileRole: 'implementation',
+                },
+            }, 0.99),
+        ]);
+        vectorDatabase.query.mockResolvedValueOnce([createRow({
+            id: 'android-manifest',
+            content: '<manifest package="com.hitmux.openclaw"><application /></manifest>',
+            relativePath: 'app/src/main/AndroidManifest.xml',
+            startLine: 1,
+            endLine: 3,
+            fileExtension: '.xml',
+            metadata: {
+                language: 'xml',
+                fileRole: 'config',
+                fileName: 'AndroidManifest.xml',
+                basename: 'AndroidManifest',
+            },
+        })]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'AndroidManifest.xml', 5, 0.3, undefined, {
+            targetRole: 'all',
+        });
+
+        expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
+        expect(String(vectorDatabase.query.mock.calls[0][1])).toBe('(basename == "AndroidManifest" and fileExtension == ".xml")');
+        expect(results[0].relativePath).toBe('app/src/main/AndroidManifest.xml');
+        expect(results[0].scoreReasons).toEqual(expect.arrayContaining(['exact_filename']));
+        expect(results[0].isPrimary).toBe(true);
+    });
+
+    it('uses exact symbol lexical recall for targetRole=all', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'semantic-drift',
+                content: 'OpenClaw setup guide references the runtime controller.',
+                relativePath: 'docs/openclaw.md',
+                startLine: 1,
+                endLine: 10,
+                fileExtension: '.md',
+                metadata: {
+                    language: 'markdown',
+                    fileRole: 'docs',
+                    chunkRole: 'reference',
+                },
+            }, 0.99),
+        ]);
+        vectorDatabase.query.mockResolvedValueOnce([createRow({
+            id: 'controller',
+            content: 'class OpenClawController(private val state: OpenClawState)',
+            relativePath: 'app/src/main/java/OpenClawController.kt',
+            startLine: 12,
+            endLine: 30,
+            fileExtension: '.kt',
+            metadata: {
+                language: 'kotlin',
+                fileRole: 'implementation',
+                fileName: 'OpenClawController.kt',
+                basename: 'OpenClawController',
+                symbols: ['OpenClawController'],
+                definitionIdentifiers: ['OpenClawController'],
+                chunkRole: 'definition',
+            },
+        })]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'OpenClawController', 5, 0.3, undefined, {
+            targetRole: 'all',
+        });
+
+        expect(vectorDatabase.query).toHaveBeenCalledTimes(1);
+        expect(String(vectorDatabase.query.mock.calls[0][1])).toContain('primarySymbol == "OpenClawController"');
+        expect(results[0].relativePath).toBe('app/src/main/java/OpenClawController.kt');
+        expect(results[0].scoreReasons).toEqual(expect.arrayContaining(['exact_symbol_definition']));
+    });
+
+    it('prioritizes explicit path literal matches for targetRole=all without role penalties', async () => {
+        const vectorDatabase = createVectorDatabase();
+        vectorDatabase.search.mockResolvedValueOnce([
+            createVectorResult({
+                id: 'semantic-drift',
+                content: 'Android application startup code without manifest metadata',
+                relativePath: 'src/mobile/bootstrap.kt',
+                startLine: 1,
+                endLine: 20,
+                fileExtension: '.kt',
+                metadata: {
+                    language: 'kotlin',
+                    fileRole: 'implementation',
+                    chunkRole: 'definition',
+                },
+            }, 0.99),
+            createVectorResult({
+                id: 'manifest',
+                content: '<manifest package="com.hitmux.openclaw"><application /></manifest>',
+                relativePath: 'app/src/main/AndroidManifest.xml',
+                startLine: 1,
+                endLine: 3,
+                fileExtension: '.xml',
+                metadata: {
+                    language: 'xml',
+                    fileRole: 'config',
+                    chunkRole: 'reference',
+                },
+            }, 0.7),
+        ]);
+        vectorDatabase.query.mockResolvedValueOnce([]);
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+        });
+
+        const results = await context.semanticSearch('/repo', 'app/src/main/AndroidManifest.xml', 2, 0.3, undefined, {
+            targetRole: 'all',
+        });
+
+        expect(results.map(result => result.relativePath)).toEqual([
+            'app/src/main/AndroidManifest.xml',
+            'src/mobile/bootstrap.kt',
+        ]);
+        expect(results.map(result => result.isPrimary)).toEqual([true, true]);
+    });
+
     it('infers filename-like queries and avoids broad lexical like filters for direct core searches', async () => {
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.query.mockResolvedValueOnce([createRow({
@@ -1663,7 +1808,7 @@ describe('Context lexical search supplement', () => {
         expect(results.map(result => result.isPrimary)).toEqual([true, false, false]);
     });
 
-    it('keeps targetRole=all output in original ranked order without file diversification', async () => {
+    it('keeps targetRole=all ungrouped and in vector order when no strong anchors are present', async () => {
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.search.mockResolvedValueOnce([
             createVectorResult({
@@ -1786,7 +1931,7 @@ describe('Context lexical search supplement', () => {
         ]);
     });
 
-    it('keeps targetRole=all output ungrouped for lexical owner queries', async () => {
+    it('keeps targetRole=all ungrouped while allowing lexical evidence across roles', async () => {
         const vectorDatabase = createVectorDatabase();
         vectorDatabase.search.mockResolvedValueOnce([
             createVectorResult({

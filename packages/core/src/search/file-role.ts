@@ -8,7 +8,7 @@ export interface FileRoleIntent {
 
 const STYLE_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less', '.styl', '.stylus', '.pcss']);
 const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.rst', '.adoc', '.txt']);
-const CONFIG_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.toml', '.ini', '.conf', '.env', '.cmake']);
+const CONFIG_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.xml', '.plist', '.toml', '.ini', '.conf', '.env', '.cmake', '.gradle']);
 
 const CONFIG_FILENAMES = new Set([
     'cmakelists.txt',
@@ -22,6 +22,12 @@ const CONFIG_FILENAMES = new Set([
     'tsconfig.json',
     'jsconfig.json',
     'pnpm-workspace.yaml',
+    'androidmanifest.xml',
+    'info.plist',
+    'settings.gradle',
+    'settings.gradle.kts',
+    'build.gradle',
+    'build.gradle.kts',
     'vite.config.ts',
     'vite.config.js',
     'vitest.config.ts',
@@ -137,7 +143,7 @@ function hasExplicitConfigIntent(lowerQuery: string): boolean {
         || /\b(?:packaging|package)\s+metadata\b/.test(lowerQuery)
         || /\bdependency\s+groups?\b/.test(lowerQuery)
         || /\bsource\s+file\s+lists?\b/.test(lowerQuery)
-        || /\b(?:cmake|cmakelists\.txt|makefile|pyproject(?:\.toml)?|cargo\.toml|go\.mod|package\.json)\b/.test(lowerQuery)
+        || /\b(?:cmake|cmakelists\.txt|makefile|pyproject(?:\.toml)?|cargo\.toml|go\.mod|package\.json|androidmanifest\.xml|info\.plist|settings\.gradle(?:\.kts)?|build\.gradle(?:\.kts)?)\b/.test(lowerQuery)
         || /(?:^|[/\\])configs?(?:[/\\]|$)/.test(lowerQuery);
 }
 

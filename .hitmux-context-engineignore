@@ -1,0 +1,9 @@
+# Local HCE runtime state
+.hitmux-context-engine/**
+
+# Local agent/session scratch directories
+.codex/**
+.agents/**
+
+# Benchmark output artifacts
+benchmark/results/**

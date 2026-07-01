@@ -152,6 +152,48 @@ describe('Context ignore pattern isolation', () => {
         expect(withoutRequestExtensions).not.toContain('.foo');
     });
 
+    it('includes common config and mobile build files by default while ignoring lock and generated files', async () => {
+        const project = path.join(tempRoot, 'project-default-coverage');
+        await fs.mkdir(path.join(project, 'app', 'src', 'main'), { recursive: true });
+        await fs.mkdir(path.join(project, 'config'), { recursive: true });
+        await fs.writeFile(path.join(project, 'package.json'), '{"name":"fixture"}');
+        await fs.writeFile(path.join(project, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+        await fs.writeFile(path.join(project, 'settings.gradle.kts'), 'pluginManagement { repositories { google() } }');
+        await fs.writeFile(path.join(project, 'build.gradle'), 'plugins { id "com.android.application" }');
+        await fs.writeFile(path.join(project, 'app', 'src', 'main', 'AndroidManifest.xml'), '<manifest package="com.hitmux.fixture" />');
+        await fs.writeFile(path.join(project, 'config', 'Info.plist'), '<plist><dict></dict></plist>');
+        await fs.writeFile(path.join(project, 'config', 'settings.yaml'), 'enabled: true\n');
+        await fs.writeFile(path.join(project, 'config', 'settings.yml'), 'enabled: true\n');
+        await fs.writeFile(path.join(project, 'package-lock.json'), '{}');
+        await fs.writeFile(path.join(project, 'yarn.lock'), '');
+        await fs.writeFile(path.join(project, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+        await fs.writeFile(path.join(project, 'bun.lockb'), '');
+        await fs.writeFile(path.join(project, 'schema.generated.json'), '{}');
+        await fs.writeFile(path.join(project, 'bundle.min.json'), '{}');
+        await fs.writeFile(path.join(project, 'generated.json'), '{}');
+        await fs.writeFile(path.join(project, 'minified.json'), '{}');
+        await fs.writeFile(path.join(project, 'payload.minified.json'), '{}');
+        await fs.writeFile(path.join(project, 'app.min.map'), '{}');
+
+        const context = new Context({
+            embedding: new TestEmbedding(),
+            vectorDatabase: createVectorDatabase(),
+        });
+
+        const preview = await context.previewIndexableFiles(project, [], [], {}, 50);
+
+        expect(preview.files).toEqual([
+            'app/src/main/AndroidManifest.xml',
+            'build.gradle',
+            'config/Info.plist',
+            'config/settings.yaml',
+            'config/settings.yml',
+            'package.json',
+            'pnpm-workspace.yaml',
+            'settings.gradle.kts',
+        ]);
+    });
+
     it('does not leak request custom extensions between codebase indexes', async () => {
         const projectA = path.join(tempRoot, 'project-a');
         const projectB = path.join(tempRoot, 'project-b');
@@ -884,6 +926,68 @@ describe('Context ignore pattern isolation', () => {
             'src/keep.ts',
             'src/nested/keep.md',
         ]);
+    });
+
+    it('does not auto-load tool-specific ignore files as codebase index rules', async () => {
+        const project = path.join(tempRoot, 'project-tool-specific-ignores');
+        await fs.mkdir(path.join(project, 'apps', 'android'), { recursive: true });
+        await fs.mkdir(path.join(project, 'test'), { recursive: true });
+        await fs.writeFile(path.join(project, '.dockerignore'), 'apps/\n');
+        await fs.writeFile(path.join(project, '.semgrepignore'), '*.test.*\ntest/\n');
+        await fs.writeFile(path.join(project, '.npmignore'), 'src/private.ts\n');
+        await fs.writeFile(path.join(project, 'apps', 'android', 'settings.gradle.kts'), 'pluginManagement { repositories { google() } }');
+        await fs.writeFile(path.join(project, 'test', 'openclaw-test-instance.test.ts'), 'it("keeps tests indexable", () => {});\n');
+        await fs.writeFile(path.join(project, 'src.ts'), 'export const keep = true;\n');
+
+        const vectorDatabase = createVectorDatabase();
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new TestSplitter(),
+        });
+
+        await context.indexCodebase(project);
+
+        const insertedDocuments = vectorDatabase.insert.mock.calls
+            .flatMap(([, documents]) => documents);
+        const indexedPaths = insertedDocuments
+            .map(document => document.relativePath.replace(/\\/g, '/'))
+            .sort();
+
+        expect(indexedPaths).toEqual([
+            'apps/android/settings.gradle.kts',
+            'src.ts',
+            'test/openclaw-test-instance.test.ts',
+        ]);
+    });
+
+    it('loads tool-specific ignore files when explicitly requested', async () => {
+        const project = path.join(tempRoot, 'project-explicit-tool-ignore');
+        await fs.mkdir(path.join(project, 'apps', 'android'), { recursive: true });
+        await fs.writeFile(path.join(project, '.dockerignore'), 'apps/\n');
+        await fs.writeFile(path.join(project, 'apps', 'android', 'settings.gradle.kts'), 'pluginManagement { repositories { google() } }');
+        await fs.writeFile(path.join(project, 'src.ts'), 'export const keep = true;\n');
+
+        const vectorDatabase = createVectorDatabase();
+        const context = new Context({
+            hybridMode: false,
+            embedding: new TestEmbedding(),
+            vectorDatabase,
+            codeSplitter: new TestSplitter(),
+        });
+
+        await context.indexCodebase(project, undefined, false, [], [], undefined, undefined, {
+            additionalIgnoreFiles: ['.dockerignore']
+        });
+
+        const insertedDocuments = vectorDatabase.insert.mock.calls
+            .flatMap(([, documents]) => documents);
+        const indexedPaths = insertedDocuments
+            .map(document => document.relativePath.replace(/\\/g, '/'))
+            .sort();
+
+        expect(indexedPaths).toEqual(['src.ts']);
     });
 
     it('skips dotfiles and dot directories during initial indexing', async () => {

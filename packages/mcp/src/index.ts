@@ -2,7 +2,9 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
     ListToolsRequestSchema,
     CallToolRequestSchema,
@@ -28,6 +30,7 @@ import { createRuntimeContext } from "./runtime-context.js";
 import { SnapshotManager } from "./snapshot.js";
 import { SyncManager } from "./sync.js";
 import { ToolHandlers } from "./handlers.js";
+import { dispatchMcpTool } from "./tool-dispatch.js";
 import { isHceDebugEnabled } from "./logger.js";
 import { UpdateChecker } from "./update-checker.js";
 
@@ -506,13 +509,6 @@ This tool is versatile and can be used before completing various tasks to retrie
                         }
                         runtime.snapshotValidated = true;
                     }
-                    if (!runtime.backgroundSyncStarted) {
-                        console.log(
-                            "[SYNC-DEBUG] Initializing background sync after first successful runtime initialization...",
-                        );
-                        runtime.syncManager.startBackgroundSync();
-                        runtime.backgroundSyncStarted = true;
-                    }
                 } catch (error) {
                     return this.withUpdateNotice(
                         this.formatRuntimeInitializationError(error),
@@ -520,39 +516,14 @@ This tool is versatile and can be used before completing various tasks to retrie
                 }
 
                 try {
-                    let result: any;
-                    switch (name) {
-                        case "index_codebase":
-                            result = await runtime.toolHandlers.handleIndexCodebase(
-                                args,
-                            );
-                            return this.withUpdateNotice(result);
-                        case "search_code":
-                            result = await runtime.toolHandlers.handleSearchCode(
-                                args,
-                            );
-                            return this.withUpdateNotice(result);
-                        case "clear_index":
-                            result = await runtime.toolHandlers.handleClearIndex(
-                                args,
-                            );
-                            return this.withUpdateNotice(result);
-                        case "get_indexing_status":
-                            result = await runtime.toolHandlers.handleGetIndexingStatus(
-                                args,
-                            );
-                            return this.withUpdateNotice(result);
-                        case "repair_index_manifest":
-                            result = await runtime.toolHandlers.handleRepairIndexManifest(
-                                args,
-                            );
-                            return this.withUpdateNotice(result);
-
-                        default:
-                            return this.withUpdateNotice(
-                                this.formatToolError("Unknown tool", name),
-                            );
-                    }
+                    const result = await dispatchMcpTool(
+                        runtime,
+                        name,
+                        args,
+                        (unknownName) =>
+                            this.formatToolError("Unknown tool", unknownName),
+                    );
+                    return this.withUpdateNotice(result);
                 } catch (error) {
                     console.error(`[MCP] Tool '${name}' failed:`, error);
                     return this.withUpdateNotice(
@@ -631,17 +602,33 @@ function installMcpConsoleRedirect(): void {
     };
 }
 
-// Handle graceful shutdown
-process.on("SIGINT", () => {
-    handleShutdownSignal("SIGINT");
-});
+function isDirectExecution(): boolean {
+    if (process.argv[1] === undefined) {
+        return false;
+    }
+    const entryPath = isAbsolute(process.argv[1])
+        ? process.argv[1]
+        : resolve(process.argv[1]);
+    try {
+        return realpathSync(entryPath) === realpathSync(fileURLToPath(import.meta.url));
+    } catch {
+        return entryPath === fileURLToPath(import.meta.url);
+    }
+}
 
-process.on("SIGTERM", () => {
-    handleShutdownSignal("SIGTERM");
-});
+if (isDirectExecution()) {
+    // Handle graceful shutdown
+    process.on("SIGINT", () => {
+        handleShutdownSignal("SIGINT");
+    });
 
-// Always start the server - this is designed to be the main entry point
-main().catch((error) => {
-    console.error("Fatal error:", error);
-    process.exit(1);
-});
+    process.on("SIGTERM", () => {
+        handleShutdownSignal("SIGTERM");
+    });
+
+    // Always start the server - this is designed to be the main entry point
+    main().catch((error) => {
+        console.error("Fatal error:", error);
+        process.exit(1);
+    });
+}

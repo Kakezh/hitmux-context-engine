@@ -35,6 +35,11 @@ describe('file role classification and intent', () => {
         expect(isFileRoleExplicitlyRequested('config', buildIntent, 'src/CMakeLists.txt')).toBe(true);
         expect(isFileRoleExplicitlyRequested('config', packageIntent, 'pyproject.toml')).toBe(true);
         expect(isFileRoleExplicitlyRequested('config', cmakeListsIntent, 'src/CMakeLists.txt')).toBe(true);
+
+        const androidBuildIntent = inferFileRoleIntent('Android build.gradle.kts and AndroidManifest.xml');
+        expect(androidBuildIntent.preferredRoles.has('config')).toBe(true);
+        expect(isFileRoleExplicitlyRequested('config', androidBuildIntent, 'settings.gradle.kts')).toBe(true);
+        expect(isFileRoleExplicitlyRequested('config', androidBuildIntent, 'app/src/main/AndroidManifest.xml')).toBe(true);
     });
 
     it('does not treat bare data format words as config intent', () => {
@@ -63,6 +68,10 @@ describe('file role classification and intent', () => {
         expect(classifyFileRole('Cargo.toml')).toBe('config');
         expect(classifyFileRole('go.mod')).toBe('config');
         expect(classifyFileRole('package.json')).toBe('config');
+        expect(classifyFileRole('app/src/main/AndroidManifest.xml')).toBe('config');
+        expect(classifyFileRole('ios/Info.plist')).toBe('config');
+        expect(classifyFileRole('settings.gradle.kts')).toBe('config');
+        expect(classifyFileRole('build.gradle')).toBe('config');
     });
 
     it('recognizes common multi-language test file naming patterns', () => {

@@ -8,6 +8,7 @@ import test from "node:test";
 import { normalizeCodebaseIdentityPath } from "@hitmux/hitmux-context-engine-core";
 import { ToolHandlers } from "./handlers.js";
 import { SnapshotManager } from "./snapshot.js";
+import { SyncManager } from "./sync.js";
 
 async function withTempHome(run: (tempRoot: string) => Promise<void>): Promise<void> {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "hitmux-context-engine-mcp-index-"));
@@ -259,5 +260,58 @@ test("parallel forced index_codebase calls do not replace an active background j
         assert.equal(first.isError, undefined);
         assert.equal(second.isError, true);
         assert.match(second.content[0].text, /already writing index state for collection/);
+    });
+});
+
+test("manual index_codebase guard blocks automatic sync until background indexing settles", async () => {
+    await withTempHome(async (tempRoot) => {
+        const codebasePath = path.join(tempRoot, "repo");
+        const existingCodebasePath = path.join(tempRoot, "already-indexed");
+        await mkdir(codebasePath, { recursive: true });
+        await mkdir(existingCodebasePath, { recursive: true });
+
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(existingCodebasePath, {
+            indexedFiles: 1,
+            totalChunks: 1,
+            status: "completed"
+        });
+        const vectorDb = {
+            checkCollectionLimit: async () => true
+        };
+        let automaticSyncCalls = 0;
+        const context = {
+            hasIndex: async () => false,
+            clearIndex: async () => undefined,
+            getVectorDatabase: () => vectorDb,
+            reindexByChange: async () => {
+                automaticSyncCalls += 1;
+                return { added: 0, removed: 0, modified: 0 };
+            }
+        } as any;
+        const syncManager = new SyncManager(context, snapshotManager);
+        const handlers = new ToolHandlers(context, snapshotManager, syncManager);
+
+        let releaseBackground!: () => void;
+        const backgroundGate = new Promise<void>((resolve) => {
+            releaseBackground = resolve;
+        });
+        (handlers as any).startBackgroundIndexing = async () => {
+            await backgroundGate;
+        };
+
+        const result = await handlers.handleIndexCodebase({ path: codebasePath });
+        assert.equal(result.isError, undefined);
+
+        await syncManager.handleSyncIndex();
+        assert.equal(automaticSyncCalls, 0);
+
+        const activeTask = (handlers as any).indexingTasks.get(codebasePath);
+        assert.ok(activeTask);
+        releaseBackground();
+        await activeTask.promise;
+
+        await syncManager.handleSyncIndex();
+        assert.equal(automaticSyncCalls, 1);
     });
 });

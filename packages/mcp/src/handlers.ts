@@ -154,7 +154,10 @@ export class ToolHandlers {
     private indexingJobStates = new IndexingJobStateManager();
     private syncManager?: Pick<
         SyncManager,
-        "getSyncStatus" | "syncCodebaseForSearch" | "trackCodebase"
+        | "getSyncStatus"
+        | "syncCodebaseForSearch"
+        | "trackCodebase"
+        | "beginManualWrite"
     >;
 
     constructor(
@@ -162,7 +165,10 @@ export class ToolHandlers {
         snapshotManager: SnapshotManager,
         syncManager?: Pick<
             SyncManager,
-            "getSyncStatus" | "syncCodebaseForSearch" | "trackCodebase"
+            | "getSyncStatus"
+            | "syncCodebaseForSearch"
+            | "trackCodebase"
+            | "beginManualWrite"
         >,
     ) {
         this.context = context;
@@ -211,7 +217,10 @@ export class ToolHandlers {
     public setSyncManager(
         syncManager: Pick<
             SyncManager,
-            "getSyncStatus" | "syncCodebaseForSearch" | "trackCodebase"
+            | "getSyncStatus"
+            | "syncCodebaseForSearch"
+            | "trackCodebase"
+            | "beginManualWrite"
         >,
     ): void {
         this.syncManager = syncManager;
@@ -2485,6 +2494,7 @@ export class ToolHandlers {
             if (!(writerLock instanceof McpWriterLock)) {
                 return writerLock;
             }
+            let releaseManualWriteGuard = this.syncManager?.beginManualWrite?.();
             let releaseWriterLockAfterReturn = true;
 
             try {
@@ -2728,6 +2738,8 @@ export class ToolHandlers {
                             if (current && current.controller === controller) {
                                 this.indexingTasks.delete(absolutePath);
                             }
+                            releaseManualWriteGuard?.();
+                            releaseManualWriteGuard = undefined;
                             writerLock.release();
                         });
                         this.indexingTasks.set(absolutePath, {
@@ -2771,6 +2783,8 @@ export class ToolHandlers {
                 );
             } finally {
                 if (releaseWriterLockAfterReturn) {
+                    releaseManualWriteGuard?.();
+                    releaseManualWriteGuard = undefined;
                     writerLock.release();
                 }
             }
@@ -3745,6 +3759,7 @@ export class ToolHandlers {
                 }
                 return writerLock;
             }
+            const releaseManualWriteGuard = this.syncManager?.beginManualWrite?.();
 
             try {
                 const cleanupWarnings: string[] = [];
@@ -3824,6 +3839,7 @@ export class ToolHandlers {
                     ],
                 };
             } finally {
+                releaseManualWriteGuard?.();
                 writerLock.release();
             }
         } catch (error) {
@@ -3908,6 +3924,7 @@ export class ToolHandlers {
             if (!(writerLock instanceof McpWriterLock)) {
                 return writerLock;
             }
+            const releaseManualWriteGuard = this.syncManager?.beginManualWrite?.();
 
             try {
                 const startedAtMs = Date.now();
@@ -3994,6 +4011,7 @@ export class ToolHandlers {
                 };
             } finally {
                 this.manifestRepairStatuses.delete(absolutePath);
+                releaseManualWriteGuard?.();
                 writerLock.release();
             }
         } catch (error: any) {

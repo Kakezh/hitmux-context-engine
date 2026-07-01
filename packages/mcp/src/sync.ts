@@ -166,6 +166,7 @@ export class SyncManager {
     private projectWatcherSyncActive: Set<string> = new Set();
     private projectWatcherSyncQueued: Set<string> = new Set();
     private projectWatcherFullScanQueued: Set<string> = new Set();
+    private manualWriteGuardDepth: number = 0;
 
     constructor(context: Context, snapshotManager: SnapshotManager) {
         this.context = context;
@@ -175,6 +176,25 @@ export class SyncManager {
     public getSyncStatus(codebasePath: string): CodebaseSyncStatus | undefined {
         const status = this.syncStatuses.get(codebasePath);
         return status ? { ...status } : undefined;
+    }
+
+    public beginManualWrite(): () => void {
+        this.manualWriteGuardDepth += 1;
+        let released = false;
+        return () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            this.manualWriteGuardDepth = Math.max(0, this.manualWriteGuardDepth - 1);
+            if (this.manualWriteGuardDepth === 0) {
+                this.drainQueuedProjectWatcherSyncs();
+            }
+        };
+    }
+
+    private isManualWriteActive(): boolean {
+        return this.manualWriteGuardDepth > 0;
     }
 
     public trackCodebase(codebasePath: string): void {
@@ -259,6 +279,13 @@ export class SyncManager {
 
         if (indexedCodebases.length === 0) {
             console.log("[SYNC-DEBUG] No codebases indexed. Skipping sync.");
+            return;
+        }
+
+        if (this.isManualWriteActive()) {
+            console.log(
+                "[SYNC-DEBUG] Manual write is active in this MCP process. Skipping automatic sync.",
+            );
             return;
         }
 
@@ -403,6 +430,13 @@ export class SyncManager {
         console.log(
             `[SYNC-DEBUG] [${index + 1}/${totalCodebases}] Starting sync for codebase: '${codebasePath}'`,
         );
+
+        if (options.writerLockHeld !== true && this.isManualWriteActive()) {
+            console.log(
+                `[SYNC-DEBUG] Manual write is active in this MCP process. Skipping automatic sync for '${codebasePath}'.`,
+            );
+            return { added: 0, removed: 0, modified: 0 };
+        }
 
         if (options.writerLockHeld !== true) {
             writerLock = acquireMcpWriterLock(
@@ -783,6 +817,15 @@ export class SyncManager {
         options: { forceFullScan?: boolean } = {},
     ): Promise<void> {
         const forceFullScan = options.forceFullScan === true;
+        if (this.isManualWriteActive()) {
+            if (forceFullScan) {
+                this.projectWatcherFullScanQueued.add(codebasePath);
+            } else {
+                this.projectWatcherSyncQueued.add(codebasePath);
+            }
+            return;
+        }
+
         if (this.projectWatcherSyncActive.size > 0) {
             if (forceFullScan) {
                 this.projectWatcherFullScanQueued.add(codebasePath);
