@@ -43,7 +43,7 @@ hce
 | `hce index --force [path]` | Force rebuild 一个 repository index。 |
 | `hce index --all --force` | Force rebuild all known repository indexes。没有 `--force` 的 `hce index --all` 会被拒绝。 |
 | `hce status [path] [--refresh]` | 显示某个 path 的 indexing status，默认当前目录。 |
-| `hce search <query> [path] [--limit n] [--target-role role]` | 从 shell 搜索已索引 path。`role` 可为 `implementation`、`test`、`docs`、`config` 或 `all`。 |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | 从 shell 搜索已索引 context。`scope` 默认 `all`；用 `docs` 或 `code` 缩小范围。 |
 | `hce list [collection-name\|repo-path]` | 列出 collections，或显示某个 collection/path 的详情。 |
 | `hce clear <path>` | 清理某个 path 的 index data。 |
 | `hce repair <path>` | 修复 legacy 或缺失的 remote index manifest。 |

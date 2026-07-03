@@ -43,7 +43,7 @@ Use `hce` without arguments only as the MCP stdio server command in client confi
 | `hce index --force [path]` | Force rebuild one repository index. |
 | `hce index --all --force` | Force rebuild all known repository indexes. `hce index --all` without `--force` is rejected. |
 | `hce status [path] [--refresh]` | Show indexing status for a path, defaulting to the current directory. |
-| `hce search <query> [path] [--limit n] [--target-role role]` | Search an indexed path from the shell. `role` is `implementation`, `test`, `docs`, `config`, or `all`. |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | Search indexed context from the shell. `scope` defaults to `all`; use `docs` or `code` to narrow results. |
 | `hce list [collection-name\|repo-path]` | List collections or show details for one collection/path. |
 | `hce clear <path>` | Clear index data for one path. |
 | `hce repair <path>` | Repair a legacy or missing remote index manifest. |

@@ -40,7 +40,7 @@ product options は `~/.hitmux-context-engine/config.conf` または `./.hitmux-
 | `hce doctor [--no-connectivity]` | Node、config parsing、必要に応じて embedding/vector database connectivity を確認。 |
 | `hce test [embedding\|vectordb]` | connectivity checks を実行。 |
 | `hce status [path] [--refresh]` | path の indexing status を表示。 |
-| `hce search <query> [path] [--limit n] [--target-role role]` | index 済み path を検索。`role` は `implementation`、`test`、`docs`、`config`、`all`。 |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | index 済み context を検索。`scope` は default で `all`、`docs` または `code` で絞り込みます。 |
 | `hce clear <path>` | path の index data を削除。 |
 | `hce repair <path>` | legacy または missing remote index manifest を repair。 |
 | `hce list [collection-name\|repo-path]` | collections を list、または detail を表示。 |
@@ -51,11 +51,11 @@ product options は `~/.hitmux-context-engine/config.conf` または `./.hitmux-
 
 ### MCP Tools
 
-`index_codebase`: directory を hybrid search 用に index します。主な arguments: `path`、`incremental`、`force`、`dryRun`、`customExtensions`、`customIgnorePatterns`。
+`index_codebase`: directory/context root を hybrid search 用に index します。主な arguments: `path`、`incremental`、`force`、`dryRun`、`customExtensions`、`customIgnorePatterns`。
 
-`search_code`: index 済み codebase を検索します。`query` には identifiers、filenames、path words、domain terms、scope hints を含めると有効です。`targetRole` は `implementation`、`test`、`docs`、`config`、`all` で、default は `implementation`。
+`search_context`: index 済み context を検索します。`query` には identifiers、filenames、headings、path words、domain terms を含めると有効です。`scope` は `all`、`docs`、`code` で、default は `all`。
 
-`clear_index`: codebase の index data を削除します。
+`clear_index`: context root の index data を削除します。
 
 `get_indexing_status`: progress、completion status、counts、recent errors を返します。
 

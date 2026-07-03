@@ -299,7 +299,7 @@ Useful combinations:
 
 - Set `backgroundSync = false` to disable periodic polling while keeping trigger-based and project-watcher event sync.
 - Set `triggerWatcher = false` on read-only or sandboxed filesystems.
-- Set `projectWatcher = false` to force the older full change scan before automatic sync and default `search_code` refreshes.
+- Set `projectWatcher = false` to force the older full change scan before automatic sync and default `search_context` refreshes.
 - Set `projectWatcherUsePolling = true` only when native file events are unreliable.
 - Set `projectWatcherIgnoredDirs` when the default watcher directory skips do not match the project's indexed scope.
 - Set `interactiveIndexing = false` to block `index_codebase` writes while still allowing dry-run previews.

@@ -102,6 +102,13 @@ interface ManifestRepairStatus {
 }
 
 type SourceFileCache = Map<string, string | Error>;
+type SearchContextScope = "all" | "docs" | "code";
+
+interface SearchToolOptions {
+    toolName: "search_code" | "search_context";
+    defaultTargetRole: SearchTargetRole;
+    useScope: boolean;
+}
 
 function getVectorDatabaseSyncTimeoutMs(): number {
     const configuredTimeoutMs = configManager.getNumber(
@@ -208,9 +215,9 @@ export class ToolHandlers {
         return Array.from(paths);
     }
 
-    private notIndexedResponse(absolutePath: string) {
+    private notIndexedResponse(absolutePath: string, label = "Codebase") {
         return this.errorResponse(
-            `Error: Codebase '${absolutePath}' is not indexed. ${NOT_INDEXED_INDEXING_HINT}`,
+            `Error: ${label} '${absolutePath}' is not indexed. ${NOT_INDEXED_INDEXING_HINT}`,
         );
     }
 
@@ -418,7 +425,7 @@ export class ToolHandlers {
             .filter((item) => item.length > 0);
     }
 
-    private normalizeOptionalSearchLimit(value: unknown): {
+    private normalizeOptionalSearchLimit(toolName: string, value: unknown): {
         limit?: number;
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -433,7 +440,7 @@ export class ToolHandlers {
         ) {
             return {
                 error: this.errorResponse(
-                    "Error: search_code argument 'limit' must be a positive number when provided.",
+                    `Error: ${toolName} argument 'limit' must be a positive number when provided.`,
                 ),
             };
         }
@@ -441,7 +448,7 @@ export class ToolHandlers {
         return { limit: Math.floor(value) };
     }
 
-    private normalizeOptionalSearchTargetRole(value: unknown): {
+    private normalizeOptionalSearchTargetRole(toolName: string, value: unknown): {
         targetRole?: SearchTargetRole;
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -461,12 +468,51 @@ export class ToolHandlers {
 
         return {
             error: this.errorResponse(
-                "Error: search_code argument 'targetRole' must be one of: implementation, test, docs, config, all.",
+                `Error: ${toolName} argument 'targetRole' must be one of: implementation, test, docs, config, all.`,
             ),
         };
     }
 
-    private normalizeOptionalIncludeRelated(value: unknown): {
+    private normalizeOptionalSearchContextScope(toolName: string, value: unknown): {
+        scope?: SearchContextScope;
+        error?: ReturnType<ToolHandlers["errorResponse"]>;
+    } {
+        if (value === undefined || value === null) {
+            return {};
+        }
+
+        if (value === "all" || value === "docs" || value === "code") {
+            return { scope: value };
+        }
+
+        return {
+            error: this.errorResponse(
+                `Error: ${toolName} argument 'scope' must be one of: all, docs, code.`,
+            ),
+        };
+    }
+
+    private getSearchContextTargetRole(scope: SearchContextScope): SearchTargetRole {
+        if (scope === "docs") {
+            return "docs";
+        }
+        if (scope === "code") {
+            return "implementation";
+        }
+        return "all";
+    }
+
+    private getSearchContextScopeFilter(scope: SearchContextScope): string | undefined {
+        if (scope === "docs") {
+            return "fileRole in ['docs']";
+        }
+        if (scope === "code") {
+            return "fileRole in ['implementation', 'test', 'entrypoint', 'barrel']";
+        }
+        return undefined;
+    }
+
+    private normalizeOptionalIncludeRelated(toolName: string, value: unknown): {
         includeRelated?: boolean;
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -480,12 +526,12 @@ export class ToolHandlers {
 
         return {
             error: this.errorResponse(
-                "Error: search_code argument 'includeRelated' must be a boolean when provided.",
+                `Error: ${toolName} argument 'includeRelated' must be a boolean when provided.`,
             ),
         };
     }
 
-    private normalizeOptionalIncludeTraceEvidence(value: unknown): {
+    private normalizeOptionalIncludeTraceEvidence(toolName: string, value: unknown): {
         includeTraceEvidence?: boolean;
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -499,12 +545,12 @@ export class ToolHandlers {
 
         return {
             error: this.errorResponse(
-                "Error: search_code argument 'includeTraceEvidence' must be a boolean when provided.",
+                `Error: ${toolName} argument 'includeTraceEvidence' must be a boolean when provided.`,
             ),
         };
     }
 
-    private normalizeOptionalSkipConsistencyCheck(value: unknown): {
+    private normalizeOptionalSkipConsistencyCheck(toolName: string, value: unknown): {
         skipConsistencyCheck?: boolean;
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -518,12 +564,12 @@ export class ToolHandlers {
 
         return {
             error: this.errorResponse(
-                "Error: search_code argument 'skipConsistencyCheck' must be a boolean when provided.",
+                `Error: ${toolName} argument 'skipConsistencyCheck' must be a boolean when provided.`,
             ),
         };
     }
 
-    private normalizeOptionalSearchConsistency(value: unknown): {
+    private normalizeOptionalSearchConsistency(toolName: string, value: unknown): {
         consistencyMode?: SearchConsistencyMode;
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -537,12 +583,12 @@ export class ToolHandlers {
 
         return {
             error: this.errorResponse(
-                "Error: search_code argument 'consistency' must be one of: low_latency, strong.",
+                `Error: ${toolName} argument 'consistency' must be one of: low_latency, strong.`,
             ),
         };
     }
 
-    private normalizeOptionalExtensionFilter(value: unknown): {
+    private normalizeOptionalExtensionFilter(toolName: string, value: unknown): {
         extensions?: string[];
         error?: ReturnType<ToolHandlers["errorResponse"]>;
     } {
@@ -553,7 +599,7 @@ export class ToolHandlers {
         if (!Array.isArray(value)) {
             return {
                 error: this.errorResponse(
-                    "Error: search_code argument 'extensionFilter' must be an array of file extensions when provided.",
+                    `Error: ${toolName} argument 'extensionFilter' must be an array of file extensions when provided.`,
                 ),
             };
         }
@@ -1293,6 +1339,7 @@ export class ToolHandlers {
     private async refreshCodebaseIndexBeforeSearch(
         codebasePath: string,
         consistencyMode: SearchConsistencyMode,
+        toolName: string,
     ): Promise<{ error?: any; warning?: string } | null> {
         if (typeof this.context.reindexByChange !== "function") {
             if (consistencyMode === "low_latency") {
@@ -1302,7 +1349,7 @@ export class ToolHandlers {
         }
 
         const writerLock = this.acquireManualWriterLock(
-            `search_code sync for '${codebasePath}'`,
+            `${toolName} sync for '${codebasePath}'`,
             this.getCollectionWriterLockScope(codebasePath),
         );
         if (!(writerLock instanceof McpWriterLock)) {
@@ -1364,7 +1411,7 @@ export class ToolHandlers {
                         }
                         return {
                             error: this.errorResponse(
-                                `Error: search_code requires a fresh index for '${codebasePath}', but ${warning}`,
+                                `Error: ${toolName} requires a fresh index for '${codebasePath}', but ${warning}`,
                             ),
                         };
                     }
@@ -1378,7 +1425,7 @@ export class ToolHandlers {
                     }
                     return {
                         error: this.errorResponse(
-                            `Error: search_code could not refresh index for '${codebasePath}' before searching: ${message}`,
+                            `Error: ${toolName} could not refresh index for '${codebasePath}' before searching: ${message}`,
                         ),
                     };
                 }
@@ -3217,9 +3264,28 @@ export class ToolHandlers {
         }
     }
 
+    public async handleSearchContext(args: any): Promise<any> {
+        return this.handleSearch(args, {
+            toolName: "search_context",
+            defaultTargetRole: "all",
+            useScope: true,
+        });
+    }
+
     public async handleSearchCode(args: any): Promise<any> {
+        return this.handleSearch(args, {
+            toolName: "search_code",
+            defaultTargetRole: "implementation",
+            useScope: false,
+        });
+    }
+
+    private async handleSearch(
+        args: any,
+        searchToolOptions: SearchToolOptions,
+    ): Promise<any> {
         const validation = this.validateRequiredStringArgs(
-            "search_code",
+            searchToolOptions.toolName,
             args,
             ["path", "query"],
         );
@@ -3233,45 +3299,96 @@ export class ToolHandlers {
             limit,
             extensionFilter,
             targetRole,
+            scope,
             includeRelated,
             includeTraceEvidence,
             skipConsistencyCheck,
             consistency,
         } = args;
-        const normalizedLimit = this.normalizeOptionalSearchLimit(limit);
+        const normalizedLimit = this.normalizeOptionalSearchLimit(
+            searchToolOptions.toolName,
+            limit,
+        );
         if (normalizedLimit.error) {
             return normalizedLimit.error;
         }
-        const normalizedTargetRole =
-            this.normalizeOptionalSearchTargetRole(targetRole);
+        const normalizedTargetRole: {
+            targetRole?: SearchTargetRole;
+            error?: ReturnType<ToolHandlers["errorResponse"]>;
+        } =
+            searchToolOptions.useScope
+                ? {}
+                : this.normalizeOptionalSearchTargetRole(
+                      searchToolOptions.toolName,
+                      targetRole,
+                  );
         if (normalizedTargetRole.error) {
             return normalizedTargetRole.error;
         }
+        const normalizedScope: {
+            scope?: SearchContextScope;
+            error?: ReturnType<ToolHandlers["errorResponse"]>;
+        } = searchToolOptions.useScope
+            ? this.normalizeOptionalSearchContextScope(
+                  searchToolOptions.toolName,
+                  scope,
+              )
+            : {};
+        if (normalizedScope.error) {
+            return normalizedScope.error;
+        }
         const normalizedIncludeRelated =
-            this.normalizeOptionalIncludeRelated(includeRelated);
+            this.normalizeOptionalIncludeRelated(
+                searchToolOptions.toolName,
+                includeRelated,
+            );
         if (normalizedIncludeRelated.error) {
             return normalizedIncludeRelated.error;
         }
         const normalizedIncludeTraceEvidence =
-            this.normalizeOptionalIncludeTraceEvidence(includeTraceEvidence);
+            this.normalizeOptionalIncludeTraceEvidence(
+                searchToolOptions.toolName,
+                includeTraceEvidence,
+            );
         if (normalizedIncludeTraceEvidence.error) {
             return normalizedIncludeTraceEvidence.error;
         }
         const normalizedSkipConsistencyCheck =
-            this.normalizeOptionalSkipConsistencyCheck(skipConsistencyCheck);
+            this.normalizeOptionalSkipConsistencyCheck(
+                searchToolOptions.toolName,
+                skipConsistencyCheck,
+            );
         if (normalizedSkipConsistencyCheck.error) {
             return normalizedSkipConsistencyCheck.error;
         }
         const normalizedConsistency =
-            this.normalizeOptionalSearchConsistency(consistency);
+            this.normalizeOptionalSearchConsistency(
+                searchToolOptions.toolName,
+                consistency,
+            );
         if (normalizedConsistency.error) {
             return normalizedConsistency.error;
         }
         const normalizedExtensionFilter =
-            this.normalizeOptionalExtensionFilter(extensionFilter);
+            this.normalizeOptionalExtensionFilter(
+                searchToolOptions.toolName,
+                extensionFilter,
+            );
         if (normalizedExtensionFilter.error) {
             return normalizedExtensionFilter.error;
         }
+        const searchScope = normalizedScope.scope ?? "all";
+        const searchTargetRole = searchToolOptions.useScope
+            ? this.getSearchContextTargetRole(searchScope)
+            : normalizedTargetRole.targetRole ?? searchToolOptions.defaultTargetRole;
+        const searchRootLabel =
+            searchToolOptions.toolName === "search_context"
+                ? "context root"
+                : "codebase";
+        const searchRootLabelTitle =
+            searchToolOptions.toolName === "search_context"
+                ? "Context root"
+                : "Codebase";
         const consistencyMode: SearchConsistencyMode =
             (normalizedSkipConsistencyCheck.skipConsistencyCheck === true
                 ? "low_latency"
@@ -3339,7 +3456,7 @@ export class ToolHandlers {
                     isIndexed = true;
                     // Continue with search (don't return error)
                 } else {
-                    return this.notIndexedResponse(absolutePath);
+                    return this.notIndexedResponse(absolutePath, searchRootLabelTitle);
                 }
             }
 
@@ -3348,7 +3465,7 @@ export class ToolHandlers {
                 consistencyMode === "strong"
             ) {
                 return this.errorResponse(
-                    `Error: Codebase '${searchCodebasePath}' is currently being indexed in the background. search_code requires a completed, fresh index; retry after indexing completes.`,
+                    `Error: ${searchRootLabelTitle} '${searchCodebasePath}' is currently being indexed in the background. ${searchToolOptions.toolName} requires a completed, fresh index; retry after indexing completes.`,
                 );
             }
 
@@ -3359,7 +3476,7 @@ export class ToolHandlers {
                 consistencyMode === "strong"
             ) {
                 return this.errorResponse(
-                    `Error: search_code requires a fresh index for '${searchCodebasePath}', but automatic sync is already in progress.\n${activeSyncStatusMessage}`,
+                    `Error: ${searchToolOptions.toolName} requires a fresh index for '${searchCodebasePath}', but automatic sync is already in progress.\n${activeSyncStatusMessage}`,
                 );
             }
 
@@ -3371,6 +3488,7 @@ export class ToolHandlers {
                 const refreshResult = await this.refreshCodebaseIndexBeforeSearch(
                     searchCodebasePath,
                     consistencyMode,
+                    searchToolOptions.toolName,
                 );
                 if (refreshResult?.error) {
                     return refreshResult.error;
@@ -3384,7 +3502,7 @@ export class ToolHandlers {
 
             let indexingStatusMessage = "";
             if (isIndexing) {
-                indexingStatusMessage = `\n **Indexing in Progress**: This codebase is currently being indexed in the background. Search results may be incomplete until indexing completes.`;
+                indexingStatusMessage = `\n **Indexing in Progress**: This ${searchRootLabel} is currently being indexed in the background. Search results may be incomplete until indexing completes.`;
             }
             const syncSearchPrefix =
                 [activeSyncStatusMessage, searchConsistencyWarning]
@@ -3411,7 +3529,7 @@ export class ToolHandlers {
             );
 
             // Build filter expression from extensionFilter list
-            let filterExpr: string | undefined = undefined;
+            const filterParts: string[] = [];
             if (
                 normalizedExtensionFilter.extensions &&
                 normalizedExtensionFilter.extensions.length > 0
@@ -3419,8 +3537,16 @@ export class ToolHandlers {
                 const quoted = normalizedExtensionFilter.extensions
                     .map((e: string) => `'${e}'`)
                     .join(", ");
-                filterExpr = `fileExtension in [${quoted}]`;
+                filterParts.push(`fileExtension in [${quoted}]`);
             }
+            const scopeFilterExpr = searchToolOptions.useScope
+                ? this.getSearchContextScopeFilter(searchScope)
+                : undefined;
+            if (scopeFilterExpr) {
+                filterParts.push(scopeFilterExpr);
+            }
+            const filterExpr =
+                filterParts.length > 0 ? filterParts.join(" and ") : undefined;
 
             const resultLimit = await this.resolveSearchResultLimit(
                 normalizedLimit.limit,
@@ -3444,7 +3570,7 @@ export class ToolHandlers {
                 searchThreshold,
                 filterExpr,
                 {
-                    targetRole: normalizedTargetRole.targetRole,
+                    targetRole: searchTargetRole,
                     includeRelated: normalizedIncludeRelated.includeRelated,
                     ...(filenameQueryStatus
                         ? { filenameLikeQuery: filenameQueryStatus.query }
@@ -3481,15 +3607,15 @@ export class ToolHandlers {
                     filenameQueryStatus,
                     false,
                 );
-                let noResultsMessage = `No results found for query: "${query}" in codebase '${searchCodebasePath}'`;
+                let noResultsMessage = `No results found for query: "${query}" in ${searchRootLabel} '${searchCodebasePath}'`;
                 if (filenameNotice.length > 0) {
                     noResultsMessage = `${filenameNotice}\n\n${noResultsMessage}`;
                 }
                 if (searchCodebasePath !== absolutePath) {
-                    noResultsMessage += `\nRequested path '${absolutePath}' is covered by indexed codebase '${searchCodebasePath}'.`;
+                    noResultsMessage += `\nRequested path '${absolutePath}' is covered by indexed ${searchRootLabel} '${searchCodebasePath}'.`;
                 }
                 if (isIndexing) {
-                    noResultsMessage += `\n\nNote: This codebase is still being indexed. Try searching again after indexing completes, or the query may not match any indexed content.`;
+                    noResultsMessage += `\n\nNote: This ${searchRootLabel} is still being indexed. Try searching again after indexing completes, or the query may not match any indexed content.`;
                 }
                 if (syncSearchPrefixBlock.length > 0) {
                     noResultsMessage = `${syncSearchPrefixBlock}${noResultsMessage}`;
@@ -3566,13 +3692,13 @@ export class ToolHandlers {
                 searchResults.length > 0,
             );
             let resultMessage = useFallbackMatchLabel
-                ? `Found ${searchResults.length} fallback matches for query: "${query}" in codebase '${searchCodebasePath}'${indexingStatusMessage}`
-                : `Found ${searchResults.length} results for query: "${query}" in codebase '${searchCodebasePath}'${indexingStatusMessage}`;
+                ? `Found ${searchResults.length} fallback matches for query: "${query}" in ${searchRootLabel} '${searchCodebasePath}'${indexingStatusMessage}`
+                : `Found ${searchResults.length} results for query: "${query}" in ${searchRootLabel} '${searchCodebasePath}'${indexingStatusMessage}`;
             if (filenameNotice.length > 0) {
                 resultMessage += `\n${filenameNotice}`;
             }
             if (searchCodebasePath !== absolutePath) {
-                resultMessage += `\nRequested path '${absolutePath}' is covered by indexed codebase '${searchCodebasePath}'.`;
+                resultMessage += `\nRequested path '${absolutePath}' is covered by indexed ${searchRootLabel} '${searchCodebasePath}'.`;
             }
             if (syncSearchPrefixBlock.length > 0) {
                 resultMessage = `${syncSearchPrefixBlock}${resultMessage}`;
@@ -3580,7 +3706,7 @@ export class ToolHandlers {
             resultMessage += `\n\n${formattedResults}`;
 
             if (isIndexing) {
-                resultMessage += `\n\n **Tip**: This codebase is still being indexed. More results may become available as indexing progresses.`;
+                resultMessage += `\n\n **Tip**: This ${searchRootLabel} is still being indexed. More results may become available as indexing progresses.`;
             }
 
             return {
@@ -3621,7 +3747,7 @@ export class ToolHandlers {
                 content: [
                     {
                         type: "text",
-                        text: `Error searching code: ${errorMessage} Please check if the codebase has been indexed first.`,
+                        text: `Error running ${searchToolOptions.toolName}: ${errorMessage} Please check if the path has been indexed first.`,
                     },
                 ],
                 isError: true,

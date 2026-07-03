@@ -584,12 +584,16 @@ describe('Context request-scoped splitters', () => {
         ]));
     });
 
-    it('indexes TSX, JSX, Markdown, Elixir, Lua, and Luau files by default with language metadata', async () => {
+    it('indexes TSX, JSX, docs, Elixir, Lua, and Luau files by default with language metadata', async () => {
         const project = path.join(tempRoot, 'project-language-support');
         await fs.mkdir(project);
         await fs.writeFile(path.join(project, 'Panel.tsx'), 'export function Panel() { return null; }');
         await fs.writeFile(path.join(project, 'Widget.jsx'), 'export function Widget() { return null; }');
         await fs.writeFile(path.join(project, 'README.md'), '# Usage\n\nDetails');
+        await fs.writeFile(path.join(project, 'README.mdx'), '# Components\n\n<Widget />');
+        await fs.writeFile(path.join(project, 'guide.rst'), 'Guide\n=====\n\nDetails');
+        await fs.writeFile(path.join(project, 'notes.txt'), 'Plain text notes');
+        await fs.writeFile(path.join(project, 'index.html'), '<main>Docs</main>');
         await fs.writeFile(path.join(project, 'greeter.ex'), 'defmodule Greeter do\n  def hello, do: :ok\nend');
         await fs.writeFile(path.join(project, 'script.exs'), 'IO.puts("hello")');
         await fs.writeFile(path.join(project, 'init.lua'), 'local value = 1');
@@ -613,6 +617,10 @@ describe('Context request-scoped splitters', () => {
         expect(callsByFile.get('Panel.tsx')).toBe('tsx');
         expect(callsByFile.get('Widget.jsx')).toBe('jsx');
         expect(callsByFile.get('README.md')).toBe('markdown');
+        expect(callsByFile.get('README.mdx')).toBe('markdown');
+        expect(callsByFile.get('guide.rst')).toBe('rst');
+        expect(callsByFile.get('notes.txt')).toBe('text');
+        expect(callsByFile.get('index.html')).toBe('html');
         expect(callsByFile.get('greeter.ex')).toBe('elixir');
         expect(callsByFile.get('script.exs')).toBe('elixir');
         expect(callsByFile.get('init.lua')).toBe('lua');
@@ -622,7 +630,27 @@ describe('Context request-scoped splitters', () => {
             .flatMap(([, documents]) => documents)
             .map(document => document.relativePath)
             .sort();
-        expect(indexedPaths).toEqual(['Panel.tsx', 'README.md', 'Widget.jsx', 'game.luau', 'greeter.ex', 'init.lua', 'script.exs']);
+        expect(indexedPaths).toEqual([
+            'Panel.tsx',
+            'README.md',
+            'README.mdx',
+            'Widget.jsx',
+            'game.luau',
+            'greeter.ex',
+            'guide.rst',
+            'index.html',
+            'init.lua',
+            'notes.txt',
+            'script.exs',
+        ]);
+
+        const documentsByPath = new Map(vectorDatabase.insert.mock.calls
+            .flatMap(([, documents]) => documents)
+            .map(document => [document.relativePath, document]));
+        expect(documentsByPath.get('README.mdx')?.metadata.fileRole).toBe('docs');
+        expect(documentsByPath.get('guide.rst')?.metadata.fileRole).toBe('docs');
+        expect(documentsByPath.get('notes.txt')?.metadata.fileRole).toBe('docs');
+        expect(documentsByPath.get('index.html')?.metadata.fileRole).toBe('docs');
     });
 
     it('reports AST splitter supported languages', () => {

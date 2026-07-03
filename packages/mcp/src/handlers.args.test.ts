@@ -84,8 +84,8 @@ test("MCP tools reject relative codebase paths", async () => {
                 run: () => handlers.handleIndexCodebase({ path: "repo", dryRun: true })
             },
             {
-                tool: "search_code",
-                run: () => handlers.handleSearchCode({ path: "repo", query: "auth middleware" })
+                tool: "search_context",
+                run: () => handlers.handleSearchContext({ path: "repo", query: "auth middleware" })
             },
             {
                 tool: "clear_index",
@@ -1524,6 +1524,73 @@ test("search_code passes validated extensionFilter as a Milvus filter expression
 
         assert.equal(result.isError, undefined);
         assert.equal(requestedFilter, "fileExtension in ['.ts', '.tsx', '.c++']");
+    });
+});
+
+test("search_context defaults to all and supports docs/code scopes", async () => {
+    await withTempDir(async (tempRoot) => {
+        const project = path.join(tempRoot, "repo");
+        await mkdir(project, { recursive: true });
+
+        const calls: Array<{ filterExpr?: string; targetRole?: string }> = [];
+        const context = {
+            getVectorDatabase: () => ({
+                listCollections: async () => []
+            }),
+            getEmbedding: () => ({
+                getProvider: () => "test"
+            }),
+            semanticSearch: async (
+                _codebasePath: string,
+                _query: string,
+                _topK: number,
+                _threshold: number,
+                filterExpr: string | undefined,
+                options: any
+            ) => {
+                calls.push({ filterExpr, targetRole: options.targetRole });
+                return [{
+                    content: "context",
+                    relativePath: "README.md",
+                    startLine: 1,
+                    endLine: 1,
+                    language: "markdown",
+                    score: 1
+                }];
+            }
+        } as any;
+        const snapshotManager = new SnapshotManager();
+        snapshotManager.setCodebaseIndexed(project, {
+            indexedFiles: 2,
+            totalChunks: 2,
+            status: "completed"
+        });
+        snapshotManager.saveCodebaseSnapshot();
+        const handlers = new ToolHandlers(context, snapshotManager);
+
+        await handlers.handleSearchContext({
+            path: project,
+            query: "renewal policy"
+        });
+        await handlers.handleSearchContext({
+            path: project,
+            query: "renewal policy",
+            scope: "docs"
+        });
+        await handlers.handleSearchContext({
+            path: project,
+            query: "runSearch",
+            scope: "code"
+        });
+
+        assert.deepEqual(calls, [
+            { filterExpr: undefined, targetRole: "all" },
+            { filterExpr: "fileRole in ['docs']", targetRole: "docs" },
+            {
+                filterExpr: "fileRole in ['implementation', 'test', 'entrypoint', 'barrel']",
+                targetRole: "implementation"
+            }
+        ]);
     });
 });
 

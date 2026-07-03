@@ -40,7 +40,7 @@ Produktoptionen in `~/.hitmux-context-engine/config.conf` oder `./.hitmux-contex
 | `hce doctor [--no-connectivity]` | Prüft Node, config parsing und optional embedding/vector database connectivity. |
 | `hce test [embedding\|vectordb]` | Führt connectivity checks aus. |
 | `hce status [path] [--refresh]` | Zeigt indexing status für einen Pfad. |
-| `hce search <query> [path] [--limit n] [--target-role role]` | Sucht in einem indexierten Pfad. `role` ist `implementation`, `test`, `docs`, `config` oder `all`. |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | Sucht in indexiertem Kontext. `scope` ist standardmäßig `all`; `docs` oder `code` grenzen Ergebnisse ein. |
 | `hce clear <path>` | Löscht index data für einen Pfad. |
 | `hce repair <path>` | Repariert ein legacy oder fehlendes remote index manifest. |
 | `hce list [collection-name\|repo-path]` | Listet collections oder zeigt Details. |
@@ -51,11 +51,11 @@ Produktoptionen in `~/.hitmux-context-engine/config.conf` oder `./.hitmux-contex
 
 ### MCP Tools
 
-`index_codebase`: indexiert ein Verzeichnis für hybrid search. Wichtige Argumente: `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
+`index_codebase`: indexiert ein Verzeichnis/context root für hybrid search. Wichtige Argumente: `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
 
-`search_code`: sucht in einem indexierten codebase. Verwende ein fokussiertes `query` mit identifiers, filenames, path words, domain terms und scope hints. `targetRole` kann `implementation`, `test`, `docs`, `config` oder `all` sein; default `implementation`.
+`search_context`: sucht in indexiertem Kontext. Verwende ein fokussiertes `query` mit identifiers, filenames, headings, path words oder domain terms. `scope` kann `all`, `docs` oder `code` sein; default `all`.
 
-`clear_index`: löscht index data für einen codebase.
+`clear_index`: löscht index data für einen context root.
 
 `get_indexing_status`: gibt progress, completion status, counts oder aktuelle Fehler zurück.
 

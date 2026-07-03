@@ -87,7 +87,7 @@ hce status .
 | Konfiguration und Verbindung prüfen | `hce doctor`, `hce doctor --no-connectivity` |
 | Aktuelles Repository indexieren | `hce index .` |
 | Index status anzeigen | `hce status .`, `hce status . --refresh` |
-| Ein indexiertes Repository durchsuchen | `hce search "query" . --limit 5 --target-role implementation` |
+| Indexierten Kontext durchsuchen | `hce search "query" . --limit 5 --scope all` |
 | Indexes und collections verwalten | `hce list`, `hce list <name-or-path>`, `hce clear <path>`, `hce repair <path>`, `hce rm <name-or-path>`, `hce index --force <path>` |
 
 Weitere Client-Beispiele, darunter Cursor, Windsurf, Claude Desktop, Gemini CLI, Qwen Code, VS Code MCP, Cline und Roo Code, stehen in [docs/quick-start.de.md](docs/quick-start.de.md).

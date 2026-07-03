@@ -6,7 +6,7 @@ type ToolDispatchRuntime = {
     toolHandlers: Pick<
         ToolHandlers,
         | "handleIndexCodebase"
-        | "handleSearchCode"
+        | "handleSearchContext"
         | "handleClearIndex"
         | "handleGetIndexingStatus"
         | "handleRepairIndexManifest"
@@ -51,8 +51,8 @@ export async function dispatchMcpTool(
         switch (name) {
             case "index_codebase":
                 return await runtime.toolHandlers.handleIndexCodebase(args);
-            case "search_code":
-                return await runtime.toolHandlers.handleSearchCode(args);
+            case "search_context":
+                return await runtime.toolHandlers.handleSearchContext(args);
             case "clear_index":
                 return await runtime.toolHandlers.handleClearIndex(args);
             case "get_indexing_status":

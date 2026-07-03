@@ -40,7 +40,7 @@ Las opciones del producto se configuran en `~/.hitmux-context-engine/config.conf
 | `hce doctor [--no-connectivity]` | Comprueba Node, config parsing y conectividad opcional de embedding/vector database. |
 | `hce test [embedding\|vectordb]` | Ejecuta connectivity checks. |
 | `hce status [path] [--refresh]` | Muestra indexing status para una ruta. |
-| `hce search <query> [path] [--limit n] [--target-role role]` | Busca en una ruta indexada. `role` es `implementation`, `test`, `docs`, `config` o `all`. |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | Busca en contexto indexado. `scope` es `all` por defecto; `docs` o `code` acotan resultados. |
 | `hce clear <path>` | Borra index data de una ruta. |
 | `hce repair <path>` | Repara manifest remoto legacy o ausente. |
 | `hce list [collection-name\|repo-path]` | Lista collections o muestra detalle. |
@@ -51,11 +51,11 @@ Las opciones del producto se configuran en `~/.hitmux-context-engine/config.conf
 
 ### MCP Tools
 
-`index_codebase`: indexa una carpeta para hybrid search. Argumentos útiles: `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
+`index_codebase`: indexa una carpeta/context root para hybrid search. Argumentos útiles: `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
 
-`search_code`: busca en un codebase indexado. Usa un `query` enfocado con identifiers, filenames, path words, domain terms y scope hints. `targetRole` puede ser `implementation`, `test`, `docs`, `config` o `all`; default `implementation`.
+`search_context`: busca en contexto indexado. Usa un `query` enfocado con identifiers, filenames, headings, path words o domain terms. `scope` puede ser `all`, `docs` o `code`; default `all`.
 
-`clear_index`: borra index data de un codebase.
+`clear_index`: borra index data de un context root.
 
 `get_indexing_status`: devuelve progreso, completion status, counts o errores recientes.
 

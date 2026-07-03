@@ -238,55 +238,43 @@ class ContextMcpServer {
 
     private setupTools() {
         const index_description = `
-Index a codebase directory to enable semantic search using a configurable code splitter.
+Index a directory/context root to enable semantic search over indexed context.
 
 **IMPORTANT**:
-- You MUST provide an absolute path to the target codebase.
+- You MUST provide an absolute path to the target directory/context root.
 
 **Usage Guidance**:
-- This tool is typically used when search fails due to an unindexed codebase.
+- This tool is typically used when search fails due to an unindexed directory/context root.
 - Before first indexing, create a project ignore file such as .hceignore when generated, large, or private paths should be excluded.
 - The indexer automatically loads .*ignore files it finds in the project tree, including .hceignore, .gitignore, and .cursorignore. Use ignoreFiles only for extra non-default ignore file paths.
-- For an already indexed codebase, prefer incremental=true to manually sync added, modified, removed, or newly ignored files without rebuilding the full index.
+- For an already indexed directory/context root, prefer incremental=true to manually sync added, modified, removed, or newly ignored files without rebuilding the full index.
 - Use force=true only when a full rebuild is required, such as after changing embedding configuration, splitter/schema compatibility, or when index/snapshot state is no longer trustworthy. Force re-indexing drops the existing index and should not be the default fix for ordinary file changes.
 `;
 
         const search_description = `
-Search the indexed codebase with code-search style queries within a specified absolute path.
+Search indexed context within a specified absolute path.
 
 **IMPORTANT**:
 - You MUST provide an absolute path.
-- Do NOT pass a broad natural-language sentence as the only query when the user is asking where behavior is implemented.
-- Rewrite natural-language requests into focused code-search terms before calling this tool.
-- Strongly prefer English queries, even when the user's request is in another language.
 
 **When to Use**:
 This tool is versatile and can be used before completing various tasks to retrieve relevant context:
-- **Code search**: Find specific functions, classes, or implementations
-- **Context-aware assistance**: Gather relevant code context before making changes
-- **Issue identification**: Locate problematic code sections or bugs
-- **Code review**: Understand existing implementations and patterns
-- **Refactoring**: Find all related code pieces that need to be updated
-- **Feature development**: Understand existing architecture and similar implementations
-- **Duplicate detection**: Identify redundant or duplicated code patterns across the codebase
+- **Documents and notes**: Find relevant sections in indexed Markdown, text, notebooks, and other supported files
+- **Code search**: Find functions, classes, implementations, tests, or configuration
+- **Context-aware assistance**: Gather relevant context before answering, editing, or reviewing
 
 **Usage Guidance**:
-- If the codebase is not indexed, this tool will return a clear error message indicating that indexing is required first and recommending a project ignore file such as .hceignore.
-- You can then use the index_codebase tool to index the codebase before searching again.
-- For natural-language discovery tasks, generate one focused query per likely implementation angle instead of one broad sentence.
-- Include likely identifiers, class/function names, file names, path segments, and English code/domain terms. Strongly prefer English for query terms.
-- Include scope hints such as client, server, shared, UI, network, rendering, storage, validation, worker, or route when relevant.
-- Prefer several short searches and compare their results by path, symbol, and content evidence.
+- If the directory/context root is not indexed, this tool will return a clear error message indicating that indexing is required first and recommending a project ignore file such as .hceignore.
+- You can then use the index_codebase tool to index the directory/context root before searching again.
+- What gets indexed is controlled by ignore files such as .hceignore, .gitignore, and other .*ignore files.
+- By default this tool searches all indexed context. Use scope='docs' for docs only or scope='code' for code only.
+- Use focused queries with relevant filenames, headings, identifiers, path words, or domain terms.
 
 **Good query style**:
 - "authentication middleware token validation"
 - "AuthMiddleware validateToken bearer token"
-- "src/auth middleware token validation"
+- "pricing table renewal policy"
 - "database migration schema version rollback"
-
-**Poor query style**:
-- "where is the code for this behavior"
-- "find the thing that handles the user request"
 `;
 
         // Define available tools
@@ -301,7 +289,7 @@ This tool is versatile and can be used before completing various tasks to retrie
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to index.`,
+                                    description: `ABSOLUTE path to the directory/context root to index.`,
                                 },
                                 force: {
                                     type: "boolean",
@@ -312,7 +300,7 @@ This tool is versatile and can be used before completing various tasks to retrie
                                 incremental: {
                                     type: "boolean",
                                     description:
-                                        "Manually sync an already indexed codebase without dropping or rebuilding the full index. Handles added, modified, removed, and newly ignored files. Use this for normal index updates and after reviewing a large automatic incremental-sync warning. Cannot be combined with force=true or dryRun=true.",
+                                        "Manually sync an already indexed directory/context root without dropping or rebuilding the full index. Handles added, modified, removed, and newly ignored files. Use this for normal index updates and after reviewing a large automatic incremental-sync warning. Cannot be combined with force=true or dryRun=true.",
                                     default: false,
                                 },
                                 splitter: {
@@ -345,13 +333,13 @@ This tool is versatile and can be used before completing various tasks to retrie
                                         type: "string",
                                     },
                                     description:
-                                        "Optional: Additional ignore files to load beyond automatically discovered .*ignore files. Relative paths are resolved from the codebase root (e.g., ['config/index.ignore']).",
+                                        "Optional: Additional ignore files to load beyond automatically discovered .*ignore files. Relative paths are resolved from the context root (e.g., ['config/index.ignore']).",
                                     default: [],
                                 },
                                 maxDepth: {
                                     type: "number",
                                     description:
-                                        "Optional: Maximum directory depth to traverse from the codebase root. 0 indexes only files directly in the root.",
+                                        "Optional: Maximum directory depth to traverse from the context root. 0 indexes only files directly in the root.",
                                     minimum: 0,
                                 },
                                 dryRun: {
@@ -365,19 +353,19 @@ This tool is versatile and can be used before completing various tasks to retrie
                         },
                     },
                     {
-                        name: "search_code",
+                        name: "search_context",
                         description: search_description,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to search in.`,
+                                    description: `ABSOLUTE path to the indexed directory to search in.`,
                                 },
                                 query: {
                                     type: "string",
                                     description:
-                                        "Focused code-search query. Strongly prefer English query terms. Rewrite natural-language requests into likely identifiers, filenames, path words, English domain terms, and scope hints. Prefer multiple short searches over one broad sentence.",
+                                        "Focused search query. Include relevant filenames, headings, identifiers, path words, or domain terms when useful.",
                                 },
                                 limit: {
                                     type: "number",
@@ -385,54 +373,20 @@ This tool is versatile and can be used before completing various tasks to retrie
                                     description:
                                         "Maximum number of results to return. Default to 10 and use 10 for normal searches; set a different value only when the user explicitly asks for more or fewer results.",
                                 },
-                                targetRole: {
+                                scope: {
                                     type: "string",
                                     enum: [
-                                        "implementation",
-                                        "test",
-                                        "docs",
-                                        "config",
                                         "all",
+                                        "docs",
+                                        "code",
                                     ],
                                     description:
-                                        "Optional explicit search target. Defaults to implementation, which keeps tests, docs, config, and barrel exports out of the primary result group.",
-                                },
-                                includeRelated: {
-                                    type: "boolean",
-                                    description:
-                                        "Optional: include non-primary result groups such as entry/exports, related tests, docs, and config. Defaults to true.",
-                                    default: true,
-                                },
-                                includeTraceEvidence: {
-                                    type: "boolean",
-                                    description:
-                                        "Optional: attach compact symbol relationship evidence for a small number of top implementation or entry results. Defaults to false.",
-                                    default: false,
-                                },
-                                consistency: {
-                                    type: "string",
-                                    enum: ["low_latency", "strong"],
-                                    description:
-                                        "Optional search consistency mode. Defaults to low_latency, which uses watcher dirty paths when available and never blocks on full-scan reconciliation. Use strong only when the search must refresh the index before returning.",
-                                    default: "low_latency",
-                                },
-                                skipConsistencyCheck: {
-                                    type: "boolean",
-                                    description:
-                                        "Deprecated compatibility option. When true, forces low_latency behavior. Prefer consistency='low_latency' or consistency='strong'.",
-                                    default: false,
-                                },
-                                extensionFilter: {
-                                    type: "array",
-                                    items: {
-                                        type: "string",
-                                    },
-                                    description:
-                                        "Optional: List of file extensions to filter results. (e.g., ['.ts','.py']).",
-                                    default: [],
+                                        "Optional search scope. Defaults to all. Use docs for docs only, code for code only, or all for every indexed file role.",
+                                    default: "all",
                                 },
                             },
                             required: ["path", "query"],
+                            additionalProperties: false,
                         },
                     },
                     {
@@ -443,7 +397,7 @@ This tool is versatile and can be used before completing various tasks to retrie
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to clear.`,
+                                    description: `ABSOLUTE path to the indexed directory/context root to clear.`,
                                 },
                             },
                             required: ["path"],
@@ -451,13 +405,13 @@ This tool is versatile and can be used before completing various tasks to retrie
                     },
                     {
                         name: "get_indexing_status",
-                        description: `Get the current indexing status of a codebase. Shows progress percentage for actively indexing codebases and completion status for indexed codebases.`,
+                        description: `Get the current indexing status of a directory/context root. Shows progress percentage for active indexing and completion status for indexed context roots.`,
                         inputSchema: {
                             type: "object",
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory to check status for.`,
+                                    description: `ABSOLUTE path to the directory/context root to check status for.`,
                                 },
                                 refresh: {
                                     type: "boolean",
@@ -472,13 +426,13 @@ This tool is versatile and can be used before completing various tasks to retrie
                     {
                         name: "repair_index_manifest",
                         description:
-                            "Explicitly migrate or repair legacy remote status for an indexed codebase by scanning chunk metadata once and writing the remote index manifest. Use only when get_indexing_status reports a missing remote manifest for an existing collection.",
+                            "Explicitly migrate or repair legacy remote status for an indexed directory/context root by scanning chunk metadata once and writing the remote index manifest. Use only when get_indexing_status reports a missing remote manifest for an existing collection.",
                         inputSchema: {
                             type: "object",
                             properties: {
                                 path: {
                                     type: "string",
-                                    description: `ABSOLUTE path to the codebase directory whose remote index manifest should be repaired.`,
+                                    description: `ABSOLUTE path to the directory/context root whose remote index manifest should be repaired.`,
                                 },
                             },
                             required: ["path"],

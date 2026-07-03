@@ -356,9 +356,9 @@ const DEFAULT_SUPPORTED_EXTENSIONS = [
     '.dart', '.sol', '.ex', '.exs', '.lua', '.luau', '.kts',
     // Structured config and build files with bounded default coverage
     '.json', '.yaml', '.yml', '.xml', '.plist', '.toml', '.cmake', '.gradle',
-    // Text and markup files
-    '.md', '.markdown', '.ipynb',
-    // '.txt', '.html', '.htm',
+    // Text, markup, notes, and lightweight tabular files
+    '.md', '.markdown', '.mdx', '.rst', '.adoc', '.txt', '.html', '.htm',
+    '.csv', '.tsv', '.ipynb',
     // '.css', '.scss', '.less', '.sql', '.sh', '.bash', '.env'
 ];
 
@@ -4760,6 +4760,14 @@ export class Context {
             '.gradle': 'gradle',
             '.md': 'markdown',
             '.markdown': 'markdown',
+            '.mdx': 'markdown',
+            '.rst': 'rst',
+            '.adoc': 'asciidoc',
+            '.txt': 'text',
+            '.html': 'html',
+            '.htm': 'html',
+            '.csv': 'csv',
+            '.tsv': 'tsv',
             '.ipynb': 'jupyter'
         };
         return languageMap[ext] || 'text';

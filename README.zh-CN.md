@@ -87,7 +87,7 @@ hce status .
 | 检查配置和连通性 | `hce doctor`, `hce doctor --no-connectivity` |
 | 为当前仓库创建索引 | `hce index .` |
 | 查看 index status | `hce status .`, `hce status . --refresh` |
-| 搜索已索引仓库 | `hce search "query" . --limit 5 --target-role implementation` |
+| 搜索已索引 context | `hce search "query" . --limit 5 --scope all` |
 | 管理 indexes 和 collections | `hce list`, `hce list <name-or-path>`, `hce clear <path>`, `hce repair <path>`, `hce rm <name-or-path>`, `hce index --force <path>` |
 
 更多客户端示例，包括 Cursor、Windsurf、Claude Desktop、Gemini CLI、Qwen Code、VS Code MCP、Cline 和 Roo Code，见 [docs/quick-start.zh-CN.md](docs/quick-start.zh-CN.md)。

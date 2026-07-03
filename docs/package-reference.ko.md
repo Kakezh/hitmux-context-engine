@@ -40,7 +40,7 @@ product options는 `~/.hitmux-context-engine/config.conf` 또는 `./.hitmux-cont
 | `hce doctor [--no-connectivity]` | Node, config parsing, 선택적 embedding/vector database connectivity 확인. |
 | `hce test [embedding\|vectordb]` | connectivity checks 실행. |
 | `hce status [path] [--refresh]` | path의 indexing status 표시. |
-| `hce search <query> [path] [--limit n] [--target-role role]` | indexed path 검색. `role`은 `implementation`, `test`, `docs`, `config`, `all`. |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | indexed context 검색. `scope` 기본값은 `all`이며 `docs` 또는 `code`로 좁힐 수 있습니다. |
 | `hce clear <path>` | path의 index data 삭제. |
 | `hce repair <path>` | legacy 또는 missing remote index manifest 복구. |
 | `hce list [collection-name\|repo-path]` | collections list 또는 detail 표시. |
@@ -51,11 +51,11 @@ product options는 `~/.hitmux-context-engine/config.conf` 또는 `./.hitmux-cont
 
 ### MCP Tools
 
-`index_codebase`: directory를 hybrid search용으로 index합니다. 주요 arguments: `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
+`index_codebase`: directory/context root를 hybrid search용으로 index합니다. 주요 arguments: `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
 
-`search_code`: indexed codebase를 검색합니다. `query`에는 identifiers, filenames, path words, domain terms, scope hints를 포함하는 것이 좋습니다. `targetRole`은 `implementation`, `test`, `docs`, `config`, `all`이며 default는 `implementation`입니다.
+`search_context`: indexed context를 검색합니다. `query`에는 identifiers, filenames, headings, path words, domain terms를 포함하는 것이 좋습니다. `scope`는 `all`, `docs`, `code`이며 default는 `all`입니다.
 
-`clear_index`: codebase의 index data를 삭제합니다.
+`clear_index`: context root의 index data를 삭제합니다.
 
 `get_indexing_status`: progress, completion status, counts, recent errors를 반환합니다.
 

@@ -17,8 +17,8 @@ function createRuntime() {
                 calls.push("handleIndexCodebase");
                 return { content: [{ type: "text", text: "indexed" }] };
             },
-            handleSearchCode: async () => {
-                calls.push("handleSearchCode");
+            handleSearchContext: async () => {
+                calls.push("handleSearchContext");
                 return { content: [{ type: "text", text: "searched" }] };
             },
             handleClearIndex: async () => {
@@ -83,17 +83,17 @@ test("first repair_index_manifest dispatch starts background sync after the hand
     assert.equal(runtime.backgroundSyncStarted, true);
 });
 
-test("first search_code dispatch starts background sync before the handler", async () => {
+test("first search_context dispatch starts background sync before the handler", async () => {
     const { calls, runtime } = createRuntime();
 
     await dispatchMcpTool(
         runtime,
-        "search_code",
+        "search_context",
         { path: "/repo", query: "search terms" },
         (name) => ({ isError: true, content: [{ type: "text", text: name }] }),
     );
 
-    assert.deepEqual(calls, ["startBackgroundSync", "handleSearchCode"]);
+    assert.deepEqual(calls, ["startBackgroundSync", "handleSearchContext"]);
     assert.equal(runtime.backgroundSyncStarted, true);
 });
 
@@ -119,7 +119,7 @@ test("background sync starts only once across dispatches", async () => {
 
     await dispatchMcpTool(
         runtime,
-        "search_code",
+        "search_context",
         { path: "/repo", query: "search terms" },
         (name) => ({ isError: true, content: [{ type: "text", text: name }] }),
     );
@@ -132,7 +132,7 @@ test("background sync starts only once across dispatches", async () => {
 
     assert.deepEqual(calls, [
         "startBackgroundSync",
-        "handleSearchCode",
+        "handleSearchContext",
         "handleIndexCodebase",
     ]);
     assert.equal(runtime.backgroundSyncStarted, true);

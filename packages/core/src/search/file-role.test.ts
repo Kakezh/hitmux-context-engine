@@ -54,6 +54,15 @@ describe('file role classification and intent', () => {
     it('classifies test docs style config and generated roles independently of query wording', () => {
         expect(classifyFileRole('src/towers/towerRegistry.test.ts')).toBe('test');
         expect(classifyFileRole('docs/towers/README.md')).toBe('docs');
+        expect(classifyFileRole('docs/example.yaml')).toBe('docs');
+        expect(classifyFileRole('doc/guide.json')).toBe('docs');
+        expect(classifyFileRole('docs/index.ts')).toBe('docs');
+        expect(classifyFileRole('docs/parser.test.ts')).toBe('docs');
+        expect(classifyFileRole('README.mdx')).toBe('docs');
+        expect(classifyFileRole('notes/product-plan.rst')).toBe('docs');
+        expect(classifyFileRole('data/pricing.csv')).toBe('docs');
+        expect(classifyFileRole('data/metrics.tsv')).toBe('docs');
+        expect(classifyFileRole('notebooks/analysis.ipynb')).toBe('docs');
         expect(classifyFileRole('src/styles/index.less')).toBe('style');
         expect(classifyFileRole('src/towers/config/factory.ts')).toBe('config');
         expect(classifyFileRole('src/generated/towers.ts')).toBe('generated');

@@ -42,7 +42,7 @@ hce
 | `hce doctor [--no-connectivity]` | 检查 Node version、config parsing、关键 runtime settings，并可选检查 embedding/vector database 连通性。 |
 | `hce test [embedding\|vectordb]` | 运行连通性检查。 |
 | `hce status [path] [--refresh]` | 打印某个 path 的 indexing status，默认当前目录。 |
-| `hce search <query> [path] [--limit n] [--target-role role]` | 从 shell 搜索已索引 path。`role` 可为 `implementation`、`test`、`docs`、`config` 或 `all`。 |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | 从 shell 搜索已索引 context。`scope` 默认 `all`；用 `docs` 或 `code` 缩小范围。 |
 | `hce clear <path>` | 清理某个 path 的 index data。 |
 | `hce repair <path>` | 修复 legacy 或缺失的 remote index manifest。 |
 | `hce list [collection-name\|repo-path]` | 列出 collections 或显示某个 collection/path 的详情。 |
@@ -55,29 +55,27 @@ hce
 
 `index_codebase`
 
-为 codebase directory 建立 hybrid search index。常用 arguments 包括：
+为 directory/context root 建立 hybrid search index。常用 arguments 包括：
 
-- `path`: absolute codebase path。
-- `incremental`: 对已经索引的 codebase 手动同步 added、modified、removed 或 newly ignored files，不做 rebuild。
+- `path`: absolute directory/context root path。
+- `incremental`: 对已经索引的 context root 手动同步 added、modified、removed 或 newly ignored files，不做 rebuild。
 - `force`: 只在少数异常场景做 full rebuild，例如 embedding/schema/splitter compatibility changes 或 index state 不可信。
 - `dryRun`: 预览 indexable files，不写入 vectors。
 - `customExtensions`: 额外纳入的 extensions。
 - `customIgnorePatterns`: 额外 ignore globs。
 
-`search_code`
+`search_context`
 
-使用聚焦的 code-search query 搜索已索引 codebase。
+使用聚焦 query 搜索已索引 context。具体纳入哪些文件由 `.hceignore`、`.gitignore` 和自动发现的其他 `.*ignore` 文件决定。
 
-- `path`: absolute codebase path。
-- `query`: 聚焦查询，使用可能的 identifiers、filenames、path words、domain terms 和 scope hints。
+- `path`: absolute indexed path。
+- `query`: 聚焦查询，使用相关 filenames、headings、identifiers、path words 或 domain terms。
 - `limit`: 返回结果最大数量。默认 `10`；只有调用方明确需要更多或更少结果时才改。
-- `targetRole`: 可选显式搜索目标：`implementation`、`test`、`docs`、`config` 或 `all`。默认 `implementation`。
-- `includeRelated`: 可选 boolean。默认 `true`；设为 `false` 时只返回 primary role group。
-- `includeTraceEvidence`: 可选 boolean。默认 `false`；设为 `true` 时，为少量 top implementation 或 entry results 附加紧凑的 symbol relationship evidence。
+- `scope`: 可选搜索范围：`all`、`docs` 或 `code`。默认 `all`。
 
 `clear_index`
 
-清理 codebase 的 index data。
+清理 context root 的 index data。
 
 `get_indexing_status`
 
@@ -131,8 +129,7 @@ const results = await context.semanticSearch(
 - `semanticSearch(path, query, topK?, threshold?, filterExpr?, options?)`
 - `traceSymbol(path, symbol, options?)`
 
-`semanticSearch` 保留 `topK` 作为 core API 中的返回结果数量名称。内部搜索会先使用更大的有界 candidate pool，再进行 dedupe/rerank，所以可见结果数量不会限制初始 dense/sparse recall。
-`options.targetRole` 默认 `implementation`；`options.includeRelated` 默认 `true`。Search results 会带有 `resultGroup`、`isPrimary`、`fileRole` 和 `chunkRole` 标注，调用方可区分 primary implementation matches、entry/export、related test、docs/config 和 chunk-level structural matches。
+`semanticSearch` 保留 `topK` 作为 core API 中的返回结果数量名称。内部搜索会先使用更大的有界 candidate pool，再进行 dedupe/rerank，所以可见结果数量不会限制初始 dense/sparse recall。Search results 会带有 `resultGroup`、`isPrimary`、`fileRole` 和 `chunkRole` 标注。
 - `hasIndex(path)`
 - `clearIndex(path, progressCallback?)`
 - `addCustomIgnorePatterns(patterns)`

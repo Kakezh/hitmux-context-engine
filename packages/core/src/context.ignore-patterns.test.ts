@@ -329,7 +329,7 @@ describe('Context ignore pattern isolation', () => {
         expect(insertedDocuments.map(document => document.relativePath)).toEqual(['kept.ts']);
     });
 
-    it('indexes known build and package metadata files by default without enabling all text files', async () => {
+    it('indexes known build, package metadata, and plain text documentation by default', async () => {
         const project = path.join(tempRoot, 'project-known-config-files');
         await fs.mkdir(project);
         await fs.mkdir(path.join(project, 'src'));
@@ -337,7 +337,7 @@ describe('Context ignore pattern isolation', () => {
         await fs.writeFile(path.join(project, 'pyproject.toml'), '[project]\nname = "demo"');
         await fs.writeFile(path.join(project, 'go.mod'), 'module example.com/demo');
         await fs.writeFile(path.join(project, 'package.json'), '{"scripts":{"start":"node index.js"}}');
-        await fs.writeFile(path.join(project, 'notes.txt'), 'ordinary text should stay out');
+        await fs.writeFile(path.join(project, 'notes.txt'), 'ordinary text should be indexed');
 
         const vectorDatabase = createVectorDatabase();
         const context = new Context({
@@ -353,6 +353,7 @@ describe('Context ignore pattern isolation', () => {
             .flatMap(([, documents]) => documents);
         expect(insertedDocuments.map(document => document.relativePath).sort()).toEqual([
             'go.mod',
+            'notes.txt',
             'package.json',
             'pyproject.toml',
             'src/CMakeLists.txt',
@@ -361,6 +362,8 @@ describe('Context ignore pattern isolation', () => {
         expect(insertedDocuments.find(document => document.relativePath === 'pyproject.toml')?.metadata.language).toBe('toml');
         expect(insertedDocuments.find(document => document.relativePath === 'go.mod')?.metadata.language).toBe('go');
         expect(insertedDocuments.find(document => document.relativePath === 'package.json')?.metadata.language).toBe('json');
+        expect(insertedDocuments.find(document => document.relativePath === 'notes.txt')?.metadata.language).toBe('text');
+        expect(insertedDocuments.find(document => document.relativePath === 'notes.txt')?.metadata.fileRole).toBe('docs');
     });
 
     it('indexes configured extension-less files without enabling them globally', async () => {

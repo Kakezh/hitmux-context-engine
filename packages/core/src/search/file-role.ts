@@ -7,7 +7,7 @@ export interface FileRoleIntent {
 }
 
 const STYLE_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less', '.styl', '.stylus', '.pcss']);
-const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.rst', '.adoc', '.txt']);
+const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.rst', '.adoc', '.txt', '.html', '.htm', '.csv', '.tsv', '.ipynb']);
 const CONFIG_EXTENSIONS = new Set(['.json', '.jsonc', '.yaml', '.yml', '.xml', '.plist', '.toml', '.ini', '.conf', '.env', '.cmake', '.gradle']);
 
 const CONFIG_FILENAMES = new Set([
@@ -52,6 +52,10 @@ export function classifyFileRole(relativePath: string, fileExtension?: string, c
     const basename = getBasename(fileName);
     const extension = normalizeExtension(fileExtension || getExtension(fileName));
 
+    if (isDocsDirectoryOrReadme(lowerPath, fileName)) {
+        return 'docs';
+    }
+
     if (isGeneratedPath(lowerPath, fileName)) {
         return 'generated';
     }
@@ -64,7 +68,7 @@ export function classifyFileRole(relativePath: string, fileExtension?: string, c
         return 'config';
     }
 
-    if (isDocsPath(lowerPath, fileName, extension)) {
+    if (DOC_EXTENSIONS.has(extension)) {
         return 'docs';
     }
 
@@ -213,12 +217,18 @@ function isTestPath(lowerPath: string, fileName: string): boolean {
         || basename.endsWith('_test');
 }
 
-function isDocsPath(lowerPath: string, fileName: string, extension: string): boolean {
-    return lowerPath.includes('/docs/')
+function isDocsDirectoryOrReadme(lowerPath: string, fileName: string): boolean {
+    return lowerPath.startsWith('docs/')
+        || lowerPath.startsWith('doc/')
+        || lowerPath.includes('/docs/')
         || lowerPath.includes('/doc/')
+        || lowerPath === 'docs'
+        || lowerPath === 'doc'
         || fileName === 'readme.md'
         || fileName === 'readme.markdown'
-        || DOC_EXTENSIONS.has(extension);
+        || fileName === 'readme.mdx'
+        || fileName === 'readme.rst'
+        || fileName === 'readme.txt';
 }
 
 function isConfigPath(lowerPath: string, fileName: string, extension: string): boolean {

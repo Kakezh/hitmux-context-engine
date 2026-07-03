@@ -25,7 +25,7 @@ function createFakeRuntime(calls: Array<{ tool: string; args: unknown }>) {
                 calls.push({ tool: "repair", args });
                 return { content: [{ type: "text", text: "repair ok" }] };
             },
-            handleSearchCode: async (args: unknown) => {
+            handleSearchContext: async (args: unknown) => {
                 calls.push({ tool: "search", args });
                 return { content: [{ type: "text", text: "search ok" }] };
             },
@@ -190,8 +190,8 @@ test("status, clear, repair, and search map to ToolHandlers", async () => {
                 "/tmp",
                 "--limit",
                 "3",
-                "--target-role",
-                "implementation",
+                "--scope",
+                "docs",
             ],
             options,
         ),
@@ -208,7 +208,7 @@ test("status, clear, repair, and search map to ToolHandlers", async () => {
                 query: "authentication middleware",
                 path: "/tmp",
                 limit: 3,
-                targetRole: "implementation",
+                scope: "docs",
             },
         },
     ]);
@@ -216,6 +216,31 @@ test("status, clear, repair, and search map to ToolHandlers", async () => {
     assert.match(output.join(""), /clear ok/);
     assert.match(output.join(""), /repair ok/);
     assert.match(output.join(""), /search ok/);
+});
+
+test("CLI help and search usage expose scope instead of target role", async () => {
+    const output: string[] = [];
+    const errors: string[] = [];
+
+    assert.equal(
+        await runCliCommand(["--help"], {
+            stdout: (message) => output.push(message),
+            stderr: (message) => errors.push(message),
+        }),
+        0,
+    );
+    assert.equal(
+        await runCliCommand(["search", "--unknown"], {
+            stdout: (message) => output.push(message),
+            stderr: (message) => errors.push(message),
+        }),
+        2,
+    );
+
+    const text = `${output.join("")}\n${errors.join("")}`;
+    assert.match(text, /--scope all\|docs\|code/);
+    assert.doesNotMatch(text, /--target-role/);
+    assert.doesNotMatch(text, /targetRole/);
 });
 
 test("status and search default path to current directory", async () => {

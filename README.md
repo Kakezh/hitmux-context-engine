@@ -2,19 +2,19 @@
 
 Language: English | [中文](README.zh-CN.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-Semantic code search for MCP clients.
+Semantic context search for MCP clients.
 
-Hitmux Context Engine indexes a repository into Milvus-compatible vector storage, then gives Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and other MCP clients focused tools for finding code by behavior, symbol, workflow, or file role.
+Hitmux Context Engine indexes a local directory into Milvus-compatible vector storage, then gives Claude Code, OpenAI Codex CLI, OpenCode, Cursor, Windsurf, and other MCP clients focused tools for finding relevant code, docs, notes, config, and other indexed context.
 
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 [![npm - core](https://img.shields.io/npm/v/@hitmux/hitmux-context-engine-core?label=%40hitmux%2Fhitmux-context-engine-core&logo=npm)](https://www.npmjs.com/package/@hitmux/hitmux-context-engine-core)
 [![npm - mcp](https://img.shields.io/npm/v/@hitmux/hitmux-context-engine-mcp?label=%40hitmux%2Fhitmux-context-engine-mcp&logo=npm)](https://www.npmjs.com/package/@hitmux/hitmux-context-engine-mcp)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Use it when an AI coding agent needs more than text grep:
+Use it when an AI agent needs more than text grep:
 
-- Search indexed code with natural-language or identifier-heavy queries.
-- Prefer implementation files while still surfacing related tests, docs, config, and exports when useful.
+- Search indexed context with natural-language, filename, heading, or identifier-heavy queries.
+- Search all indexed content by default, or narrow to docs-only or code-only context.
 - Keep project configuration in simple `config.conf` files instead of per-client environment setup.
 
 Typical first-use workflow:
@@ -85,9 +85,9 @@ hce status .
 | Create or complete global config | `hce init` |
 | Show global and project config paths | `hce config path` |
 | Check config and connectivity | `hce doctor`, `hce doctor --no-connectivity` |
-| Index the current repository | `hce index .` |
+| Index the current directory | `hce index .` |
 | Show index status | `hce status .`, `hce status . --refresh` |
-| Search an indexed repository | `hce search "query" . --limit 5 --target-role implementation` |
+| Search indexed context from shell | `hce search "query" . --limit 5 --scope all` |
 | Manage indexes and collections | `hce list`, `hce list <name-or-path>`, `hce clear <path>`, `hce repair <path>`, `hce rm <name-or-path>`, `hce index --force <path>` |
 
 More client examples, including Cursor, Windsurf, Claude Desktop, Gemini CLI, Qwen Code, VS Code MCP, Cline, and Roo Code, are in [docs/quick-start.md](docs/quick-start.md).

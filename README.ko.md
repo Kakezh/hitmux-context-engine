@@ -87,7 +87,7 @@ hce status .
 | config와 connectivity 확인 | `hce doctor`, `hce doctor --no-connectivity` |
 | 현재 repository index | `hce index .` |
 | index status 표시 | `hce status .`, `hce status . --refresh` |
-| index된 repository 검색 | `hce search "query" . --limit 5 --target-role implementation` |
+| index된 context 검색 | `hce search "query" . --limit 5 --scope all` |
 | indexes와 collections 관리 | `hce list`, `hce list <name-or-path>`, `hce clear <path>`, `hce repair <path>`, `hce rm <name-or-path>`, `hce index --force <path>` |
 
 Cursor, Windsurf, Claude Desktop, Gemini CLI, Qwen Code, VS Code MCP, Cline, Roo Code를 포함한 더 많은 client examples는 [docs/quick-start.ko.md](docs/quick-start.ko.md)에 있습니다.

@@ -40,7 +40,7 @@ Configurez les options produit dans `~/.hitmux-context-engine/config.conf` ou `.
 | `hce doctor [--no-connectivity]` | Vérifie Node, config parsing et la connectivité embedding/vector database optionnelle. |
 | `hce test [embedding\|vectordb]` | Lance les connectivity checks. |
 | `hce status [path] [--refresh]` | Affiche indexing status pour un chemin. |
-| `hce search <query> [path] [--limit n] [--target-role role]` | Recherche dans un chemin indexé. `role` vaut `implementation`, `test`, `docs`, `config` ou `all`. |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | Recherche dans le contexte indexé. `scope` vaut `all` par défaut; `docs` ou `code` limitent les résultats. |
 | `hce clear <path>` | Supprime index data pour un chemin. |
 | `hce repair <path>` | Répare un manifest distant legacy ou absent. |
 | `hce list [collection-name\|repo-path]` | Liste les collections ou affiche un détail. |
@@ -51,11 +51,11 @@ Configurez les options produit dans `~/.hitmux-context-engine/config.conf` ou `.
 
 ### MCP Tools
 
-`index_codebase` : indexe un dossier pour hybrid search. Arguments utiles : `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
+`index_codebase` : indexe un dossier/context root pour hybrid search. Arguments utiles : `path`, `incremental`, `force`, `dryRun`, `customExtensions`, `customIgnorePatterns`.
 
-`search_code` : recherche dans un codebase indexé. Utilisez un `query` ciblé avec identifiers, filenames, path words, domain terms et scope hints. `targetRole` peut être `implementation`, `test`, `docs`, `config` ou `all`; default `implementation`.
+`search_context` : recherche dans le contexte indexé. Utilisez un `query` ciblé avec identifiers, filenames, headings, path words ou domain terms. `scope` peut être `all`, `docs` ou `code`; default `all`.
 
-`clear_index` : supprime index data pour un codebase.
+`clear_index` : supprime index data pour un context root.
 
 `get_indexing_status` : renvoie progression, completion status, counts ou erreurs récentes.
 

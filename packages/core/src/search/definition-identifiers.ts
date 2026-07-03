@@ -325,7 +325,7 @@ function classifyDefinitionLanguage(options: ExtractDefinitionIdentifierOptions)
     if (!hasHints) {
         return 'all';
     }
-    if (language === 'markdown' || language === 'md' || effectiveExtension === '.md' || effectiveExtension === '.markdown') {
+    if (language === 'markdown' || language === 'md' || effectiveExtension === '.md' || effectiveExtension === '.markdown' || effectiveExtension === '.mdx') {
         return 'markdown';
     }
     if (language === 'toml' || effectiveExtension === '.toml' || fileName === 'pyproject.toml' || fileName === 'cargo.toml') {

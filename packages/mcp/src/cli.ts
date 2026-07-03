@@ -22,7 +22,7 @@ import { SyncManager } from "./sync.js";
 
 const MCP_PACKAGE_VERSION_FALLBACK = "0.0.0";
 
-type CliTargetRole = "implementation" | "test" | "docs" | "config" | "all";
+type CliSearchScope = "all" | "docs" | "code";
 
 interface CliRuntime {
     context: Context;
@@ -83,7 +83,7 @@ export function getCliHelpText(): string {
         "",
         "Index and collection management:",
         " hce status [path] [--refresh]",
-        " hce search <query> [path] [--limit n] [--target-role role]",
+        " hce search <query> [path] [--limit n] [--scope all|docs|code]",
         " hce clear <path>",
         " hce repair <path>",
         " hce test [embedding|vectordb]",
@@ -402,19 +402,19 @@ function parsePathOnlyCommand(
 function parseSearchCommand(args: string[]): HandlerCommand {
     if (args.length === 0) {
         throw new CliUsageError(
-            "Usage: hce search <query> [path] [--limit n] [--target-role implementation|test|docs|config|all]",
+            "Usage: hce search <query> [path] [--limit n] [--scope all|docs|code]",
         );
     }
 
     const positional: string[] = [];
     let limit: number | undefined;
-    let targetRole: CliTargetRole | undefined;
+    let scope: CliSearchScope | undefined;
     for (let index = 0; index < args.length; index++) {
         const arg = args[index];
         if (arg === "--limit") {
             const rawLimit = args[++index];
             if (!rawLimit) {
-                throw new CliUsageError("Usage: hce search <query> [path] [--limit n]");
+                throw new CliUsageError("Usage: hce search <query> [path] [--limit n] [--scope all|docs|code]");
             }
             limit = Number(rawLimit);
             if (!Number.isFinite(limit) || limit <= 0 || !Number.isInteger(limit)) {
@@ -422,19 +422,28 @@ function parseSearchCommand(args: string[]): HandlerCommand {
             }
             continue;
         }
+        if (arg === "--scope") {
+            const rawScope = args[++index];
+            if (!isCliSearchScope(rawScope)) {
+                throw new CliUsageError("--scope must be one of: all, docs, code");
+            }
+            scope = rawScope;
+            continue;
+        }
         if (arg === "--target-role") {
             const rawRole = args[++index];
-            if (!isCliTargetRole(rawRole)) {
+            const mappedScope = mapLegacyTargetRoleToScope(rawRole);
+            if (!mappedScope) {
                 throw new CliUsageError(
-                    "--target-role must be one of: implementation, test, docs, config, all",
+                    "Usage: hce search <query> [path] [--limit n] [--scope all|docs|code]",
                 );
             }
-            targetRole = rawRole;
+            scope = mappedScope;
             continue;
         }
         if (arg.startsWith("--")) {
             throw new CliUsageError(
-                "Usage: hce search <query> [path] [--limit n] [--target-role implementation|test|docs|config|all]",
+                "Usage: hce search <query> [path] [--limit n] [--scope all|docs|code]",
             );
         }
         positional.push(arg);
@@ -442,7 +451,7 @@ function parseSearchCommand(args: string[]): HandlerCommand {
 
     if (positional.length < 1 || positional.length > 2) {
         throw new CliUsageError(
-            "Usage: hce search <query> [path] [--limit n] [--target-role implementation|test|docs|config|all]",
+            "Usage: hce search <query> [path] [--limit n] [--scope all|docs|code]",
         );
     }
 
@@ -452,7 +461,7 @@ function parseSearchCommand(args: string[]): HandlerCommand {
             query: positional[0],
             path: resolveCliPath(positional[1] ?? process.cwd()),
             ...(limit !== undefined ? { limit } : {}),
-            ...(targetRole ? { targetRole } : {}),
+            ...(scope ? { scope } : {}),
         },
     };
 }
@@ -481,7 +490,7 @@ async function runHandlerCommand(
                         );
                     break;
                 case "search":
-                    result = await runtime.toolHandlers.handleSearchCode(command.args);
+                    result = await runtime.toolHandlers.handleSearchContext(command.args);
                     break;
             }
             return writeHandlerResult(result, options);
@@ -563,14 +572,23 @@ function resolveCliPath(input: string): string {
     return isAbsolute(input) ? input : resolve(process.cwd(), input);
 }
 
-function isCliTargetRole(value: string | undefined): value is CliTargetRole {
-    return (
-        value === "implementation" ||
-        value === "test" ||
-        value === "docs" ||
-        value === "config" ||
-        value === "all"
-    );
+function isCliSearchScope(value: string | undefined): value is CliSearchScope {
+    return value === "all" || value === "docs" || value === "code";
+}
+
+function mapLegacyTargetRoleToScope(value: string | undefined): CliSearchScope | undefined {
+    switch (value) {
+        case "all":
+        case "config":
+            return "all";
+        case "docs":
+            return "docs";
+        case "implementation":
+        case "test":
+            return "code";
+        default:
+            return undefined;
+    }
 }
 
 function getConfigReadError(): Error | null {

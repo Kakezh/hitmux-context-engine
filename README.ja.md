@@ -87,7 +87,7 @@ hce status .
 | config と connectivity を確認 | `hce doctor`, `hce doctor --no-connectivity` |
 | 現在の repository を index | `hce index .` |
 | index status を表示 | `hce status .`, `hce status . --refresh` |
-| index 済み repository を検索 | `hce search "query" . --limit 5 --target-role implementation` |
+| index 済み context を検索 | `hce search "query" . --limit 5 --scope all` |
 | indexes と collections を管理 | `hce list`, `hce list <name-or-path>`, `hce clear <path>`, `hce repair <path>`, `hce rm <name-or-path>`, `hce index --force <path>` |
 
 Cursor、Windsurf、Claude Desktop、Gemini CLI、Qwen Code、VS Code MCP、Cline、Roo Code などの client examples は [docs/quick-start.ja.md](docs/quick-start.ja.md) にあります。

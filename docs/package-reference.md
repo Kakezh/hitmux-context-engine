@@ -42,7 +42,7 @@ Plain `hce` with no arguments starts the MCP stdio server. Use arguments for she
 | `hce doctor [--no-connectivity]` | Check Node version, config parsing, key runtime settings, and optionally embedding/vector database connectivity. |
 | `hce test [embedding\|vectordb]` | Run connectivity checks. |
 | `hce status [path] [--refresh]` | Print indexing status for a path, defaulting to the current directory. |
-| `hce search <query> [path] [--limit n] [--target-role role]` | Search an indexed path from the shell. `role` is `implementation`, `test`, `docs`, `config`, or `all`. |
+| `hce search <query> [path] [--limit n] [--scope all\|docs\|code]` | Search indexed context from the shell. `scope` defaults to `all`; use `docs` or `code` to narrow results. |
 | `hce clear <path>` | Clear index data for one path. |
 | `hce repair <path>` | Repair a legacy or missing remote index manifest. |
 | `hce list [collection-name\|repo-path]` | List collections or show details for one collection/path. |
@@ -55,29 +55,27 @@ Plain `hce` with no arguments starts the MCP stdio server. Use arguments for she
 
 `index_codebase`
 
-Indexes a codebase directory for hybrid search. Useful arguments include:
+Indexes a directory/context root for hybrid search. Useful arguments include:
 
-- `path`: absolute codebase path.
-- `incremental`: manually sync added, modified, removed, or newly ignored files for an already indexed codebase without rebuilding.
+- `path`: absolute directory/context root path.
+- `incremental`: manually sync added, modified, removed, or newly ignored files for an already indexed context root without rebuilding.
 - `force`: full rebuild for exceptional cases only, such as embedding/schema/splitter compatibility changes or untrustworthy index state.
 - `dryRun`: preview indexable files without writing vectors.
 - `customExtensions`: additional extensions to include.
 - `customIgnorePatterns`: additional ignore globs.
 
-`search_code`
+`search_context`
 
-Searches an indexed codebase with a focused code-search query.
+Searches indexed context with a focused query. What gets indexed is controlled by ignore files such as `.hceignore`, `.gitignore`, and other discovered `.*ignore` files.
 
-- `path`: absolute codebase path.
-- `query`: focused query using likely identifiers, filenames, path words, domain terms, and scope hints.
+- `path`: absolute indexed path.
+- `query`: focused query using relevant filenames, headings, identifiers, path words, or domain terms.
 - `limit`: max number of returned results. Defaults to `10`; use a different value only when the caller explicitly needs more or fewer results.
-- `targetRole`: optional explicit search target: `implementation`, `test`, `docs`, `config`, or `all`. Defaults to `implementation`.
-- `includeRelated`: optional boolean. Defaults to `true`; set `false` to return only the primary role group.
-- `includeTraceEvidence`: optional boolean. Defaults to `false`; set `true` to attach compact symbol relationship evidence for a small number of top implementation or entry results.
+- `scope`: optional search scope: `all`, `docs`, or `code`. Defaults to `all`.
 
 `clear_index`
 
-Clears index data for a codebase.
+Clears index data for a context root.
 
 `get_indexing_status`
 
@@ -131,8 +129,7 @@ Database note: Use Local Milvus with `address: "localhost:19530"`. For self-host
 - `semanticSearch(path, query, topK?, threshold?, filterExpr?, options?)`
 - `traceSymbol(path, symbol, options?)`
 
-`semanticSearch` keeps `topK` as the core API name for the returned result count. Internally, search uses a larger bounded candidate pool before dedupe/rerank, so the visible result count does not cap initial dense/sparse recall.
-`options.targetRole` defaults to `implementation`; `options.includeRelated` defaults to `true`. Search results are annotated with `resultGroup`, `isPrimary`, `fileRole`, and `chunkRole` so callers can separate primary implementation matches from entry/export, related test, docs/config, and chunk-level structural matches.
+`semanticSearch` keeps `topK` as the core API name for the returned result count. Internally, search uses a larger bounded candidate pool before dedupe/rerank, so the visible result count does not cap initial dense/sparse recall. Search results are annotated with `resultGroup`, `isPrimary`, `fileRole`, and `chunkRole`.
 - `hasIndex(path)`
 - `clearIndex(path, progressCallback?)`
 - `addCustomIgnorePatterns(patterns)`

@@ -303,7 +303,7 @@ Useful combinations:
 
 - 设置 `backgroundSync = false` 可禁用 periodic polling，同时保留 trigger-based 和 project-watcher event sync。
 - 在 read-only 或 sandboxed filesystems 上设置 `triggerWatcher = false`。
-- 设置 `projectWatcher = false` 可强制使用较旧的 full change scan，再执行 automatic sync 和默认 `search_code` refreshes。
+- 设置 `projectWatcher = false` 可强制使用较旧的 full change scan，再执行 automatic sync 和默认 `search_context` refreshes。
 - 只有 native file events 不可靠时才设置 `projectWatcherUsePolling = true`。
 - 当默认 watcher directory skips 与项目 indexed scope 不匹配时，设置 `projectWatcherIgnoredDirs`。
 - 设置 `interactiveIndexing = false` 可阻止 `index_codebase` writes，同时仍允许 dry-run previews。
